@@ -5,12 +5,14 @@ from collections import namedtuple
 
 Product = namedtuple('Product', 'id actual delivery prognosis prognosis_type prices_actual prices_delivery')
 base = "https://www.terraelectronica.ru/"
+BIG_PRICE = 10000
 
 
 def get_search_links_list(search_text) -> [str]:
     """
     function gets list of search links for selected query with "smd" in description
-    :return:
+    :param search_text - query to search (10u 16V 0805) for example
+    :return: list of links with searc results
     """
     search_query = "+".join(search_text.split())
     url = base + "search?text=" + search_query
@@ -68,9 +70,9 @@ def get_actual_info(product_id: str) -> (int, dict):
 
 def get_min_price_actual(products: [Product], res_number: int) -> [str]:
     """
-    gets quantity (or less) most cheap offers of actual products
+    gets res_number(or less) most cheap offers of actual products
     :param products: list of products
-    :param res_number: quantity of products
+    :param res_number: quantity of product ids
     :return: list of cheap products
     """
     actual_products = [product for product in products if product.actual]
@@ -81,12 +83,13 @@ def get_min_price_actual(products: [Product], res_number: int) -> [str]:
     return res
 
 
-def get_min_price_actual_with_quantity(products: [Product], quantity: int) -> [str]:
+def get_min_price_actual_with_quantity(products: [Product], quantity: int) -> (str, float):
     """
-
-    :param products:
-    :param quantity:
-    :return:
+    gets actual offer for position witn minimal price and not less then quantity items (price must be chosen
+    for required quantity)
+    :param quantity: required quantity of items
+    :param products: list with offers for this position
+    :return: id of best offer, price of best offer
     """
     actual_prices = {}
     for product in products:
@@ -104,6 +107,7 @@ def get_min_price_actual_with_quantity(products: [Product], quantity: int) -> [s
                 min_price = actual_prices[product]
         return min_id, min_price
     return 0, -1
+
 
 def get_delivery_info(product_id: str) -> (int, dict):
     """
@@ -142,46 +146,46 @@ def get_delivery_info(product_id: str) -> (int, dict):
     return 0, 0, None, {}
 
 
-def get_min_price_delivery(products: [Product], res_number: int) -> str:
+def get_min_price_delivery(products: [Product], res_number: int) -> [str]:
     """
-
-    :param products:
-    :return:
+    gets res_number best offers using only delivery information (not actual)
+    :param products: list of offers for this position
+    :param res_number number of result  links
+    :return: id of offer
     """
     delivery_products = [product for product in products if product.delivery and 1 in product.prices_delivery.keys()]
     delivery_products.sort(key=lambda x: x.prices_delivery[1])
-    res = []
-    for i in range(min(res_number, len(delivery_products))):
-        res.append(delivery_products[i].id)
+    res = [delivery_products[i].id for i in range(min(res_number, len(delivery_products)))]
     return res
 
-def get_min_price(products: [Product], res_number: int) -> str:
-    """
 
-    :param products:
-    :param res_number:
-    :return:
+def get_min_price(products: [Product], res_number: int) -> [str]:
+    """
+    get two best offers - actual and delivery
+    :param products: list of offers
+    :param res_number: number of results
+    :return: list of best offers
     """
     res = get_min_price_actual(products, res_number)
     res.extend(get_min_price_delivery(products, res_number))
     return res
 
 
-def get_min_price_quantity_data(products: [Product], quantity: int, date: int) -> str:
+def get_min_price_quantity_data(products: [Product], quantity: int, date: int) -> (float, str, int):
     """
-
-    :param products:
-    :param date:
-    :param quantity:
-    :return:
+    get best offer for quanity units with no more then date days of delivery
+    :param products: list if offers
+    :param date: max days of delivery
+    :param quantity: required qiantity
+    :return: best price, id of best offer, days of delivery
     """
     min_id, min_price_actual = get_min_price_actual_with_quantity(products, quantity)
     delivery_prices = {}
     for product in products:
         if product.delivery >= quantity:
-            prognosis = product.prognosis if product.prognosis_type == "Дни" else product.prognosis*7
-            if (prognosis <= date):
-                min_price = 10000
+            prognosis = product.prognosis if product.prognosis_type == "Дни" else product.prognosis * 7
+            if prognosis <= date:
+                min_price = BIG_PRICE
                 for q in product.prices_delivery.keys():
                     if q <= quantity and min_price >= product.prices_delivery[q]:
                         min_price = product.prices_delivery[q]
@@ -214,7 +218,7 @@ def main():
         g.write("%s " % position)
         data = position.split(":")
         search_query = data[0]
-        if len(data)>1:
+        if len(data) > 1:
             quantity = int(data[1])
         else:
             quantity = 1
@@ -235,14 +239,15 @@ def main():
         if quantity == 1:
             best_price_actual = get_min_price_actual(products, 1)
             for price in best_price_actual:
-                g.write("Best Actual" +base + "product/" + price + '\n')
+                g.write("Best Actual: " + base + "product/" + price + '\n')
         else:
             best_price_id, best_price_actual = get_min_price_actual_with_quantity(products, quantity)
-            g.write("Best Actual" + base + "product/" + best_price_id + ": " + str(best_price_actual)+'\n')
+            g.write("Best Actual: " + base + "product/" + best_price_id + ": " + str(best_price_actual) + '\n')
         best_price, best_price_id, best_price_date = get_min_price_quantity_data(products, quantity, 5)
-        g.write("Best ever: %sproduct/%s Price: % 6.2f, delivered on: % i\n\n" % (base, best_price_id, best_price, best_price_date))
+        g.write("Best ever: %sproduct/%s Price: % 6.2f, delivered on: % i\n\n" % (
+            base, best_price_id, best_price, best_price_date))
     g.close()
+
 
 if __name__ == '__main__':
     main()
-
