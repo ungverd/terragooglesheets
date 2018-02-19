@@ -42,6 +42,16 @@ def get_product_list(link: str) -> [str]:
     url = base + link
     r = requests.get(url)
     soup = BeautifulSoup(r.text)
+    pages = soup.findAll('li', {'class': 'waves-effect'})
+    products = []
+    if pages:
+        for page in set(pages):
+            url = base + page.contents[0].attrs['href']
+            r = requests.get(url)
+            soup = BeautifulSoup(r.text)
+            links = soup.findAll('td', {'class': 'table-item-name'})
+            products.extend([link.attrs['data-code'] for link in links])
+        return products
     links = soup.findAll('td', {'class': 'table-item-name'})
     products = [link.attrs['data-code'] for link in links]
     return products
@@ -208,9 +218,9 @@ def get_min_price_quantity_data(products: [Product], quantity: int, date: int) -
 
 
 def main():
-    g = open(r"C:\Users\juice\Downloads\Ostranna\Scripts\terra_results.txt", "w")
+    g = open(r"C:\Users\juice\Downloads\Ostranna\Scripts\Terra\terra_results.txt", "w")
     try:
-        f = open(r"C:\Users\juice\Downloads\Ostranna\Scripts\terra.txt")
+        f = open(r"C:\Users\juice\Downloads\Ostranna\Scripts\terra\terra.txt")
     except FileNotFoundError:
         print('File with positions("terra.txt" does not exist)')
         return
