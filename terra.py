@@ -2,8 +2,10 @@ import requests
 from bs4 import BeautifulSoup
 from bs4 import Tag
 from collections import namedtuple
+import csv
+import datetime
 
-Product = namedtuple('Product', 'id actual delivery prognosis prognosis_type prices_actual prices_delivery')
+Product = namedtuple('Product', 'id actual delivery prognosis prognosis_type prices_actual prices_delivery partnumber')
 base = "https://www.terraelectronica.ru/"
 BIG_PRICE = 10000
 
@@ -61,12 +63,14 @@ def get_actual_info(product_id: str) -> (int, dict):
     """
     function gets actual price and quantity of product. If on demand only return 0 and {}
     :param product_id: product id
-    :return: quantity, dictionary with prices
+    :return: quantity, dictionary with prices, partnumber
     """
     url = base + "product/" + product_id
     res = requests.get(url)
     soup = BeautifulSoup(res.text)
     actual = soup.find('div', {'class': 'box-title'})
+    partnumber = soup.find('h1', {'class': 'truncate'})
+    partnumber = partnumber.contents[0].split()[0]
     if actual:
         actual = [tag for tag in actual if isinstance(tag, Tag)]
         actual_quantity = int(actual[0].contents[0].replace("шт.", ""))
@@ -74,8 +78,8 @@ def get_actual_info(product_id: str) -> (int, dict):
         prices_actual = {}
         for price in price_data:
             prices_actual[int(price.attrs['data-count'])] = float(price.attrs['data-price'])
-        return actual_quantity, prices_actual
-    return 0, {}
+        return actual_quantity, prices_actual, partnumber
+    return 0, {}, partnumber
 
 
 def get_min_price_actual(products: [Product], res_number: int) -> [str]:
@@ -142,11 +146,11 @@ def get_delivery_info(product_id: str) -> (int, dict):
             quantity = int(quantity.replace("шт.", ""))
             prognosis = delivery_data[1].contents[0]
             if "недел" in prognosis:
-                prognosis_type = "Недели"
+                prognosis_type = "Weeks"
                 prognosis = int(prognosis.split()[2].split('-')[0])
             else:
                 if "дн" in prognosis:
-                    prognosis_type = "Дни"
+                    prognosis_type = "Days"
                     prognosis = int(prognosis.split()[2])
         price_data = [tag for tag in soup.find('span', {'class': 'prices'}) if isinstance(tag, Tag)]
         prices_delivery = {}
@@ -193,7 +197,7 @@ def get_min_price_quantity_data(products: [Product], quantity: int, date: int) -
     delivery_prices = {}
     for product in products:
         if product.delivery >= quantity:
-            prognosis = product.prognosis if product.prognosis_type == "Дни" else product.prognosis * 7
+            prognosis = product.prognosis if product.prognosis_type == "Days" else product.prognosis * 7
             if prognosis <= date:
                 min_price = BIG_PRICE
                 for q in product.prices_delivery.keys():
@@ -216,6 +220,21 @@ def get_min_price_quantity_data(products: [Product], quantity: int, date: int) -
     else:
         return min_delivery_price, min_delivery_id, min_delivery_prognosis
 
+def create_csv(search_query: str, products: [Product]):
+    now = datetime.datetime.now()
+    filename = r"C:\Users\juice\Downloads\Ostranna\Scripts\terra\%s %d.%d.%d.csv" % (search_query.replace("\n", ""), now.day, now.month, now.year)
+    with open(filename, "w", newline="") as file:
+        writer = csv.writer(file, delimiter=';')
+        writer.writerow(["Partnumber", "days", "Type", "Quantity", "Price", "Starts..."])
+        for product in products:
+            for price in product.prices_actual.keys():
+                row = [product.partnumber, 0, "Actual", product.actual, str(product.prices_actual[price]).replace(".", ","), price]
+                writer.writerow(row)
+            for price in product.prices_delivery.keys():
+                row = [product.partnumber,  str(product.prognosis)+product.prognosis_type, "Delivery", product.delivery, str(product.prices_delivery[price]).replace(".", ","), price]
+                writer.writerow(row)
+            writer.writerow(["","","","", "", ""])
+    file.close()
 
 def main():
     g = open(r"C:\Users\juice\Downloads\Ostranna\Scripts\Terra\terra_results.txt", "w")
@@ -241,11 +260,11 @@ def main():
         for link in search_links:
             product_ids = get_product_list(link)
             for product_id in product_ids:
-                actual, prices_actual = get_actual_info(product_id)
+                actual, prices_actual, partnumber = get_actual_info(product_id)
                 delivery, prognosis, prognosis_type, prices_delivery = get_delivery_info(product_id)
                 products.append(Product(id=product_id, actual=actual, delivery=delivery, prices_actual=prices_actual,
                                         prices_delivery=prices_delivery, prognosis=prognosis,
-                                        prognosis_type=prognosis_type))
+                                        prognosis_type=prognosis_type, partnumber=partnumber))
         if quantity == 1:
             best_price_actual = get_min_price_actual(products, 1)
             for price in best_price_actual:
@@ -256,6 +275,7 @@ def main():
         best_price, best_price_id, best_price_date = get_min_price_quantity_data(products, quantity, 5)
         g.write("Best ever: %sproduct/%s Price: % 6.2f, delivered on: % i\n\n" % (
             base, best_price_id, best_price, best_price_date))
+        create_csv(search_query, products)
     g.close()
 
 
