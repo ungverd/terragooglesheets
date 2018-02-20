@@ -4,6 +4,7 @@ from bs4 import Tag
 from collections import namedtuple
 import csv
 import datetime
+import sys
 
 Product = namedtuple('Product', 'id actual delivery prognosis prognosis_type prices_actual prices_delivery partnumber')
 base = "https://www.terraelectronica.ru/"
@@ -236,12 +237,12 @@ def create_csv(search_query: str, products: [Product]):
             writer.writerow(["","","","", "", ""])
     file.close()
 
-def main():
+def main(filename: str, date: int):
     g = open(r"C:\Users\juice\Downloads\Ostranna\Scripts\Terra\terra_results.txt", "w")
     try:
-        f = open(r"C:\Users\juice\Downloads\Ostranna\Scripts\terra\terra.txt")
+        f = open(r"C:\Users\juice\Downloads\Ostranna\Scripts\terra\%s" % filename)
     except FileNotFoundError:
-        print('File with positions("terra.txt" does not exist)')
+        print('File with positions("%s" does not exist)' %filename)
         return
     for position in f:
         g.write("%s " % position)
@@ -272,12 +273,21 @@ def main():
         else:
             best_price_id, best_price_actual = get_min_price_actual_with_quantity(products, quantity)
             g.write("Best Actual: " + base + "product/" + best_price_id + ": " + str(best_price_actual) + '\n')
-        best_price, best_price_id, best_price_date = get_min_price_quantity_data(products, quantity, 5)
-        g.write("Best ever: %sproduct/%s Price: % 6.2f, delivered on: % i\n\n" % (
-            base, best_price_id, best_price, best_price_date))
+        if date > 0:
+            best_price, best_price_id, best_price_date = get_min_price_quantity_data(products, quantity, date)
+            g.write("Best ever: %sproduct/%s Price: % 6.2f, delivered on: % i\n\n" % (
+                base, best_price_id, best_price, best_price_date))
         create_csv(search_query, products)
     g.close()
 
 
 if __name__ == '__main__':
-    main()
+    if len(sys.argv)>1:
+        main(sys.argv[1], int(sys.argv[2]))
+    else:
+        if len(sys.argv) == 1:
+            main(sys.argv[1], 0)
+        else:
+            main("terra.txt", 0)
+
+
