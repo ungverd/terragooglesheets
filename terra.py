@@ -11,7 +11,7 @@ base = "https://www.terraelectronica.ru/"
 BIG_PRICE = 10000
 
 
-def get_search_links_list(search_text) -> [str]:
+def get_search_links_from_page(search_text) -> [str]:
     """
     function gets list of search links for selected query with "smd" in description
     :param search_text - query to search (10u 16V 0805) for example
@@ -59,6 +59,19 @@ def get_product_list(link: str) -> [str]:
     products = [link.attrs['data-code'] for link in links]
     return products
 
+
+def is_capasitorx57r(search_str: str) -> bool:
+    """
+    check if we look for capacitor
+    :param search_str:
+    :return:
+    """
+    if 'NP0' in search_str or 'np0' in search_str:
+        return False
+    if 'u' in search_str or 'n' in search_str or 'pf' in search_str or 'pF' in search_str:
+        return True
+    if 'пф' in search_str or 'мкф' in search_str or 'нф' in search_str:
+        return True
 
 def get_actual_info(product_id: str) -> (int, dict):
     """
@@ -121,7 +134,7 @@ def get_min_price_actual_with_quantity(products: [Product], quantity: int) -> (s
                 min_id = product
                 min_price = actual_prices[product]
         return min_id, min_price
-    return 0, -1
+    return "0", -1
 
 
 def get_delivery_info(product_id: str) -> (int, dict):
@@ -237,28 +250,81 @@ def create_csv(search_query: str, products: [Product]):
             writer.writerow(["","","","", "", ""])
     file.close()
 
-def main(filename: str, date: int):
+def get_files(filename: str):
+    """
+    opens files to read and write result
+    :param filename: file with search strings
+    :return: file to read, file to write
+    """
     g = open(r"C:\Users\juice\Downloads\Ostranna\Scripts\Terra\terra_results.txt", "w")
     try:
         f = open(r"C:\Users\juice\Downloads\Ostranna\Scripts\terra\%s" % filename)
     except FileNotFoundError:
-        print('File with positions("%s" does not exist)' %filename)
+        print('File with positions("%s" does not exist)' % filename)
+        raise
+    return f, g
+
+def  get_search_links(position: str) -> ([str], int):
+    """
+    gets search links list
+    :param position: search string
+    :return: search link list, quantity of position
+    """
+    data = position.split(":")
+    search_query = data[0]
+    if len(data) > 1:
+        quantity = int(data[1])
+    else:
+        quantity = 1
+    if not is_capasitorx57r(search_query):
+        try:
+            search_links = get_search_links_from_page(search_query)
+        except AttributeError:
+            print("Position %s not found or only one result, check on terraelectronics" % position)
+            return [], quantity
+    else:
+        try:
+            search_links = get_search_links_from_page(search_query + ' x5r')
+        except AttributeError:
+            search_links = []
+        try:
+            search_links.extend(get_search_links_from_page(search_query + ' x7r'))
+        except AttributeError:
+            pass
+    return search_links, quantity
+
+def correct_link_for_0603(link: str) -> str:
+    """
+
+    :param link:
+    :return:
+    """
+    query = link.split('%26')
+    query = [q for q in query if not '0201' in q]
+    """for q in query:
+        if '1201' in q:
+            index = query.index(q)
+    query.pop(index)"""
+    link = '%26'.join(query)
+    return link
+
+def main(filename: str, date: int):
+
+    try:
+        f, g = get_files(filename)
+    except FileNotFoundError:
         return
+
     for position in f:
         g.write("%s " % position)
-        data = position.split(":")
-        search_query = data[0]
-        if len(data) > 1:
-            quantity = int(data[1])
-        else:
-            quantity = 1
-        try:
-            search_links = get_search_links_list(search_query)
-        except AttributeError:
+        search_links, quantity = get_search_links(position)
+        if not search_links:
             print("Position %s not found or only one result, check on terraelectronics" % position)
             continue
         products = []
         for link in search_links:
+            if '0603' in position:
+                link = correct_link_for_0603(link)
             product_ids = get_product_list(link)
             for product_id in product_ids:
                 actual, prices_actual, partnumber = get_actual_info(product_id)
@@ -277,7 +343,7 @@ def main(filename: str, date: int):
             best_price, best_price_id, best_price_date = get_min_price_quantity_data(products, quantity, date)
             g.write("Best ever: %sproduct/%s Price: % 6.2f, delivered on: % i\n\n" % (
                 base, best_price_id, best_price, best_price_date))
-        create_csv(search_query, products)
+        create_csv(position.split(':')[0], products)
     g.close()
 
 
