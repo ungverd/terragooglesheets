@@ -44,12 +44,15 @@ def get_search_links_for_row(row: list, i_type: int, i_value: int, i_footprint: 
     if row[i_type] == 'Resistor':
         position = row[i_value] + ' ' + row[i_footprint].split('_')[1]
         position += ' 1%'
-        search_links = get_search_links(position)
+        search_links = get_search_links_from_page(position)
     if row[i_type] == 'Capacitor':
         position = row[i_value] + ' ' + row[i_footprint].split('_')[1]
         if 'u' or 'n' in row[i_value]:
-            search_links = get_search_links(position + ' x7r')
-            search_links.extend(get_search_links(position + ' x5r'))
+            search_links = get_search_links_from_page(position + ' x7r')
+            search_links.extend(get_search_links_from_page(position + ' x5r'))
+    for link in search_links:
+        if '0603' in position:
+            link = correct_link_for_0603(link)
     return search_links
 
 
@@ -253,6 +256,28 @@ def get_min_price_quantity_data(products: [Product], quantity: int, date: int) -
         return min_delivery_price, min_delivery_id, min_delivery_prognosis
 
 
+def get_new_row(row: list, i_url: int, i_price: int, best_price_id: str, best_price: float) -> str:
+    """
+
+    :param row: row of table with positions
+    :param i_url: index of url column
+    :param i_price: index of price column
+    :param best_price_id: id of best product
+    :param best_price: best price
+    :return:
+    """
+    new_row = row
+    if i_url != -1:
+        new_row[i_url] = base + 'product/' + best_price_id
+    else:
+        new_row[12] = base + 'product/' + best_price_id
+        if i_price != -1:
+            new_row[i_price] = best_price
+        else:
+           new_row[13] = best_price
+    return new_row
+
+
 def main(spreadsheetId, first, last):
     """
     gets position data from spreadsheet, searches it within terraelectronica, and adds it back to spreadshhet
@@ -273,6 +298,7 @@ def main(spreadsheetId, first, last):
     i_value = get_index(columns, "Value")
     i_quantity = get_index(columns, "Quantity")
     i_footprint = get_index(columns, "Footprint")
+    i_partnumber = get_index(columns, "Partnumber")
     if i_type == -1 or i_value == -1 or i_footprint == -1:
         print("Cannot procede\n")
         return
@@ -286,36 +312,24 @@ def main(spreadsheetId, first, last):
         products = []
         search_links = get_search_links_for_row(row, i_type, i_value, i_footprint)
         if search_links:
-            print(position)
             products = []
             for link in search_links:
-                if '0603' in position:
-                    link = correct_link_for_0603(link)
                 get_product_data(link, products)
+            if products:
+                if i_quantity == -1:
+                    quantity = 1
+                else:
+                    try:
+                       quantity = int(row[i_quantity])
+                    except ValueError:
+                        continue
+                best_price, best_price_id, best_price_date = get_min_price_quantity_data(products, quantity, 5)
+                new_row = get_new_row(row, i_url, i_price, best_price_id, best_price)
+                request_body = {"valueInputOption": "RAW",
+                                "data": [{"range": 'a%i:o%i' % (values.index(row)+first, values.index(row)+first), "values": [new_row]}]}
+                request = service.spreadsheets().values().batchUpdate(spreadsheetId=spreadsheetId, body=request_body)
+                _ = request.execute()
 
-            if i_quantity == -1:
-                quantity = 1
-            else:
-                try:
-                    quantity = int(row[i_quantity])
-                except ValueError:
-                    continue
-            best_price, best_price_id, best_price_date = get_min_price_quantity_data(products, quantity, 5)s
-        new_row = row
-        if products:
-            if i_url != -1:
-                new_row[i_url] = base + 'product/' + best_price_id
-            else:
-                new_row[12] = base + 'product/' + best_price_id
-            if i_price != -1:
-                new_row[i_price] = best_price
-            else:
-                new_row[13] = best_price
-        results.append(new_row)
-    if results:
-        request_body = {"valueInputOption": "RAW", "data": [{"range": 'a%i:o%i' % (first, last), "values": results}]}
-        request = service.spreadsheets().values().batchUpdate(spreadsheetId=spreadsheetId, body=request_body)
-        _ = request.execute()
 
 
 if __name__ == '__main__':
