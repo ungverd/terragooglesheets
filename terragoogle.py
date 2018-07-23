@@ -10,7 +10,8 @@ from bs4 import Tag
 from collections import namedtuple
 
 Product = namedtuple('Product', 'id actual delivery prognosis prognosis_type prices_actual prices_delivery partnumber')
-base = "https://www.terraelectronica.ru/"
+terra_base = r"https://www.terraelectronica.ru/"
+onelec_base = r'https://onelec.ru/products/'
 BIG_PRICE = 10000
 
 CREDENTIALS_FILE = 'LSComponents.json'
@@ -63,7 +64,7 @@ def get_search_links_from_page(search_text) -> [str]:
     :return: list of links with searc results
     """
     search_query = "+".join(search_text.split())
-    url = base + "search?text=" + search_query
+    url = terra_base + "search?text=" + search_query
     r = requests.get(url)
     soup = BeautifulSoup(r.text)
     links = soup.find('ul', {'class': "search-list"})
@@ -99,14 +100,14 @@ def get_product_list(link: str) -> [str]:
     :param link: search link
     :return: list of product ids
     """
-    url = base + link
+    url = terra_base + link
     r = requests.get(url)
     soup = BeautifulSoup(r.text)
     pages = soup.findAll('li', {'class': 'waves-effect'})
     products = []
     if pages:
         for page in set(pages):
-            url = base + page.contents[0].attrs['href']
+            url = terra_base + page.contents[0].attrs['href']
             r = requests.get(url)
             soup = BeautifulSoup(r.text)
             links = soup.findAll('td', {'class': 'table-item-name'})
@@ -123,7 +124,7 @@ def get_actual_info(product_id: str) -> (int, dict):
     :param product_id: product id
     :return: quantity, dictionary with prices, partnumber
     """
-    url = base + "product/" + product_id
+    url = terra_base + "product/" + product_id
     res = requests.get(url)
     soup = BeautifulSoup(res.text)
     actual = soup.find('div', {'class': 'box-title'})
@@ -175,6 +176,7 @@ def get_delivery_info(product_id: str) -> (int, dict):
             prices_delivery[int(price.attrs['data-count'])] = float(price.attrs['data-price'])
         return quantity, prognosis, prognosis_type, prices_delivery
     return 0, 0, None, {}
+
 
 def get_product_data(link: str, products: [Product]):
     """
@@ -264,6 +266,7 @@ def get_new_row(row: list, i_url: int, i_price: int, best_price_id: str, best_pr
     :param i_price: index of price column
     :param best_price_id: id of best product
     :param best_price: best price
+    :param comment: string with not best price and url
     :return:
     """
     new_row = row
@@ -284,6 +287,70 @@ def get_new_row(row: list, i_url: int, i_price: int, best_price_id: str, best_pr
         new_row[12] = comment
     return new_row
 
+
+def get_terra_by_pn(partnumber:str) -> (float, str):
+    """
+    gets data from terra by partnumber
+    :param partnumber:
+    :return: price, url
+    """
+    url = terra_base + "search?text=" + partnumber
+    res = requests.get(url)
+    terra_url = ""
+    terra_price = 0
+    if 'product' in res.url:
+        terra_url = res.url
+        soup = BeautifulSoup(res.text)
+        tags = soup.find('div', {'class': 'fast-buy'})
+        if tags:
+            tag = soup.find('span', {'class': 'price-single price-active'})
+            terra_price = float(tag.attrs['data-price'])
+    return terra_price, terra_url
+
+
+def get_onelec_pn(partnumber: str) -> (float, str):
+    """
+    gets url and price from onelec
+    :param partnumber: partnumber of product
+    :return: price, url
+    """
+    url = onelec_base + partnumber
+    res = requests.get(url)
+    onelec_url = ""
+    onelec_price = 0
+    if res.status_code != 404:
+        onelec_url = url
+        soup = BeautifulSoup(res.text)
+        table = soup.find('table', {'class': "table product-offers"})
+        try:
+            for tag in [tag for tag in table.contents[0].contents if isinstance(tag, Tag)]:
+                delivery = int(tag.contents[0].text.split()[1])
+                if delivery <= 5 and 'по запросу' not in tag.contents[1].text:
+                    price = float(
+                        tag.contents[2].contents[0].contents[0]['data-price-rub'].split()[0].replace(',', '.'))
+                    if onelec_price == 0:
+                        onelec_price = price
+                    else:
+                        if price < onelec_price:
+                            onelec_price = price
+        except AttributeError:
+            return 0, ""
+    return onelec_price, onelec_url
+
+
+def get_best_price_from_onelec_terra_by_pn(partnumber: str)->(float, str, str):
+    """
+    function gets best price from onelec and terra by partnumber and selects best
+    :param partnumber: partnumber for spreadsheet
+    :return: best price, best url, other url+price
+    """
+    terra_price, terra_url = get_terra_by_pn(partnumber)
+    onelec_price, onelec_url = get_onelec_pn(partnumber)
+    if terra_price < onelec_price and terra_price != 0:
+        return terra_price, terra_url, onelec_url + ' ' + str(onelec_price)
+    if onelec_price != 0:
+        return onelec_price, onelec_url, terra_url + ' ' + str(terra_price)
+    return terra_price, terra_url, onelec_url + ' ' + str(onelec_price)
 
 def main(spreadsheetId, first, last):
     """
@@ -314,9 +381,7 @@ def main(spreadsheetId, first, last):
 
     answer = service.spreadsheets().values().get(spreadsheetId=spreadsheetId, range='a%i:o%i' % (first, last)).execute()
     values = answer.get('values', [])
-    results = []
-    for row in values:
-        products = []
+    for (index, row) in enumerate(values):
         search_links = get_search_links_for_row(row, i_type, i_value, i_footprint)
         if search_links:
             products = []
@@ -327,67 +392,26 @@ def main(spreadsheetId, first, last):
                     quantity = 1
                 else:
                     try:
-                       quantity = int(row[i_quantity])
+                        quantity = int(row[i_quantity])
                     except ValueError:
                         continue
                 best_price, best_price_id, best_price_date = get_min_price_quantity_data(products, quantity, 5)
                 new_row = get_new_row(row, i_url, i_price, base+r'product/'+best_price_id, best_price, "")
                 request_body = {"valueInputOption": "RAW",
-                                "data": [{"range": 'a%i:o%i' % (values.index(row)+first, values.index(row)+first), "values": [new_row]}]}
+                                "data": [{"range": 'a%i:o%i' % (index+first, index+first), "values": [new_row]}]}
                 request = service.spreadsheets().values().batchUpdate(spreadsheetId=spreadsheetId, body=request_body)
                 _ = request.execute()
 
         if i_partnumber != -1:
             if row[i_partnumber]:
-                url = base + "search?text=" + row[i_partnumber]
-                res = requests.get(url)
-                terra_url = res.url
-                terra_price = 0
-                if 'product' in terra_url:
-                    soup = BeautifulSoup(res.text)
-                    tags = soup.find('div', {'class':'fast-buy'})
-                    terra_price = 0
-                    if tags:
-                        tag = soup.find('span', {'class':'price-single price-active'})
-                        terra_price = float(tag.attrs['data-price'])
-                url = r'https://onelec.ru/products/' + row[i_partnumber]
-                res = requests.get(url)
-                onelec_url = url
-                onelec_price = 0
-                if res.status_code != 404:
-                    soup = BeautifulSoup(res.text)
-                    table = soup.find('table', {'class':"table product-offers"})
-                    try:
-                        for tag in [tag for tag in table.contents[0].contents if isInstance(tag)]:
-                            delivery = int(tag.contents[0].text.split()[1])
-                            if delivery<=5 and 'по запросу' not in tag.contents[1].text:
-                                price = float(tag.contents[2].contents[0].contents[0]['data-price-rub'].split()[0].replace(',','.'))
-                                if onelec_price == 0:
-                                    onelec_price = price
-                                else:
-                                    if price<onelec_price:
-                                        onelec_price = price
-                    except AttributeError:
-                        continue
-                if terra_price < onelec_price and terra_price != 0:
-                    best_url = terra_url
-                    best_price = terra_price
-                    comment = onelec_url + ' ' + str(onelec_price)
-                else:
-                    best_price = onelec_price
-                    best_url = onelec_url
-                    comment = terra_url + ' ' + str(terra_price)
-                if not ((onelec_price == 0) and (terra_price == 0)):
+                best_price, best_url, comment = get_best_price_from_onelec_terra_by_pn(row[i_partnumber])
+                if best_price != 0:
                     new_row = get_new_row(row, i_url, i_price, best_url, best_price, comment)
                     request_body = {"valueInputOption": "RAW",
-                                       "data": [{"range": 'a%i:o%i' % (
-                                        values.index(row) + first, values.index(row) + first), "values": [new_row]}]}
-                    request = service.spreadsheets().values().batchUpdate(spreadsheetId=spreadsheetId,
-                                                                              body=request_body)
+                                    "data": [{"range": 'a%i:o%i' % (
+                                    values.index(row) + first, values.index(row) + first), "values": [new_row]}]}
+                    request = service.spreadsheets().values().batchUpdate(spreadsheetId=spreadsheetId, body=request_body)
                     _ = request.execute()
-
-
-
 
 
 if __name__ == '__main__':
