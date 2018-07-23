@@ -256,7 +256,7 @@ def get_min_price_quantity_data(products: [Product], quantity: int, date: int) -
         return min_delivery_price, min_delivery_id, min_delivery_prognosis
 
 
-def get_new_row(row: list, i_url: int, i_price: int, best_price_id: str, best_price: float) -> str:
+def get_new_row(row: list, i_url: int, i_price: int, best_price_id: str, best_price: float, comment:str) -> str:
     """
 
     :param row: row of table with positions
@@ -267,14 +267,21 @@ def get_new_row(row: list, i_url: int, i_price: int, best_price_id: str, best_pr
     :return:
     """
     new_row = row
+    length = len(row)
+    tail = []
+    for i in range(13-length):
+        tail.append("")
+    row.extend(tail)
     if i_url != -1:
-        new_row[i_url] = base + 'product/' + best_price_id
+        new_row[i_url] = best_price_id
     else:
-        new_row[12] = base + 'product/' + best_price_id
-        if i_price != -1:
-            new_row[i_price] = best_price
-        else:
-           new_row[13] = best_price
+        new_row[10] = best_price_id
+    if i_price != -1:
+        new_row[i_price] = best_price
+    else:
+        new_row[11] = best_price
+    if comment:
+        new_row[12] = comment
     return new_row
 
 
@@ -298,7 +305,7 @@ def main(spreadsheetId, first, last):
     i_value = get_index(columns, "Value")
     i_quantity = get_index(columns, "Quantity")
     i_footprint = get_index(columns, "Footprint")
-    i_partnumber = get_index(columns, "Partnumber")
+    i_partnumber = get_index(columns, "PN")
     if i_type == -1 or i_value == -1 or i_footprint == -1:
         print("Cannot procede\n")
         return
@@ -324,11 +331,62 @@ def main(spreadsheetId, first, last):
                     except ValueError:
                         continue
                 best_price, best_price_id, best_price_date = get_min_price_quantity_data(products, quantity, 5)
-                new_row = get_new_row(row, i_url, i_price, best_price_id, best_price)
+                new_row = get_new_row(row, i_url, i_price, base+r'product/'+best_price_id, best_price, "")
                 request_body = {"valueInputOption": "RAW",
                                 "data": [{"range": 'a%i:o%i' % (values.index(row)+first, values.index(row)+first), "values": [new_row]}]}
                 request = service.spreadsheets().values().batchUpdate(spreadsheetId=spreadsheetId, body=request_body)
                 _ = request.execute()
+
+        if i_partnumber != -1:
+            if row[i_partnumber]:
+                url = base + "search?text=" + row[i_partnumber]
+                res = requests.get(url)
+                terra_url = res.url
+                terra_price = 0
+                if 'product' in terra_url:
+                    soup = BeautifulSoup(res.text)
+                    tags = soup.find('div', {'class':'fast-buy'})
+                    terra_price = 0
+                    if tags:
+                        tag = soup.find('span', {'class':'price-single price-active'})
+                        terra_price = float(tag.attrs['data-price'])
+                url = r'https://onelec.ru/products/' + row[i_partnumber]
+                res = requests.get(url)
+                onelec_url = url
+                onelec_price = 0
+                if res.status_code != 404:
+                    soup = BeautifulSoup(res.text)
+                    table = soup.find('table', {'class':"table product-offers"})
+                    try:
+                        for tag in [tag for tag in table.contents[0].contents if isInstance(tag)]:
+                            delivery = int(tag.contents[0].text.split()[1])
+                            if delivery<=5 and 'по запросу' not in tag.contents[1].text:
+                                price = float(tag.contents[2].contents[0].contents[0]['data-price-rub'].split()[0].replace(',','.'))
+                                if onelec_price == 0:
+                                    onelec_price = price
+                                else:
+                                    if price<onelec_price:
+                                        onelec_price = price
+                    except AttributeError:
+                        continue
+                if terra_price < onelec_price and terra_price != 0:
+                    best_url = terra_url
+                    best_price = terra_price
+                    comment = onelec_url + ' ' + str(onelec_price)
+                else:
+                    best_price = onelec_price
+                    best_url = onelec_url
+                    comment = terra_url + ' ' + str(terra_price)
+                if not ((onelec_price == 0) and (terra_price == 0)):
+                    new_row = get_new_row(row, i_url, i_price, best_url, best_price, comment)
+                    request_body = {"valueInputOption": "RAW",
+                                       "data": [{"range": 'a%i:o%i' % (
+                                        values.index(row) + first, values.index(row) + first), "values": [new_row]}]}
+                    request = service.spreadsheets().values().batchUpdate(spreadsheetId=spreadsheetId,
+                                                                              body=request_body)
+                    _ = request.execute()
+
+
 
 
 
