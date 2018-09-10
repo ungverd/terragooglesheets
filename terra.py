@@ -301,10 +301,7 @@ def correct_link_for_0603(link: str) -> str:
     """
     query = link.split('%26')
     query = [q for q in query if not '0201' in q]
-    """for q in query:
-        if '1201' in q:
-            index = query.index(q)
-    query.pop(index)"""
+
     link = '%26'.join(query)
     return link
 

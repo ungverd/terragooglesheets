@@ -7,9 +7,23 @@ import requests
 from bs4 import BeautifulSoup
 from bs4 import Tag
 
-from collections import namedtuple
+from dataclasses import dataclass
 
-Product = namedtuple('Product', 'id actual delivery prognosis prognosis_type prices_actual prices_delivery partnumber')
+@dataclass
+class Product:
+    id: str
+    actual: int
+    delivery: int
+    prognosis: int
+    prognosis_type: str
+    prices_actual: dict
+    prices_delivery: dict
+    partnumber: str
+
+
+#from collections import namedtuple
+
+#Product = namedtuple('Product', 'id actual delivery prognosis prognosis_type prices_actual prices_delivery partnumber')
 terra_base = r"https://www.terraelectronica.ru/"
 onelec_base = r'https://onelec.ru/products/'
 BIG_PRICE = 10000
@@ -51,10 +65,13 @@ def get_search_links_for_row(row: list, i_type: int, i_value: int, i_footprint: 
         if 'u' or 'n' in row[i_value]:
             search_links = get_search_links_from_page(position + ' x7r')
             search_links.extend(get_search_links_from_page(position + ' x5r'))
+    new_links = []
     for link in search_links:
         if '0603' in position:
-            link = correct_link_for_0603(link)
-    return search_links
+            new_links.append(correct_link_for_0603(link))
+        else:
+            new_links.append(link)
+    return new_links
 
 
 def get_search_links_from_page(search_text) -> [str]:
@@ -118,7 +135,7 @@ def get_product_list(link: str) -> [str]:
     return products
 
 
-def get_actual_info(product_id: str) -> (int, dict):
+def get_actual_info(product_id: str) -> (int, dict, str):
     """
     function gets actual price and quantity of product. If on demand only return 0 and {}
     :param product_id: product id
@@ -141,7 +158,7 @@ def get_actual_info(product_id: str) -> (int, dict):
     return 0, {}, partnumber
 
 
-def get_delivery_info(product_id: str) -> (int, dict):
+def get_delivery_info(product_id: str) -> (int, int, str, dict):
     """
     function gets delivery data for product
     :param product_id: id of product
@@ -314,7 +331,7 @@ def get_onelec_pn(partnumber: str) -> (float, str):
     :param partnumber: partnumber of product
     :return: price, url
     """
-    url = onelec_base + partnumber
+    url = onelec_base + partnumber.lower()
     res = requests.get(url)
     onelec_url = ""
     onelec_price = 0
@@ -324,7 +341,10 @@ def get_onelec_pn(partnumber: str) -> (float, str):
         table = soup.find('table', {'class': "table product-offers"})
         try:
             for tag in [tag for tag in table.contents[0].contents if isinstance(tag, Tag)]:
-                delivery = int(tag.contents[0].text.split()[1])
+                try:
+                    delivery = int(tag.contents[0].text.split()[1])
+                except ValueError:
+                    return 0, ""
                 if delivery <= 5 and 'по запросу' not in tag.contents[1].text:
                     price = float(
                         tag.contents[2].contents[0].contents[0]['data-price-rub'].split()[0].replace(',', '.'))
@@ -396,13 +416,13 @@ def main(spreadsheetId, first, last):
                     except ValueError:
                         continue
                 best_price, best_price_id, best_price_date = get_min_price_quantity_data(products, quantity, 5)
-                new_row = get_new_row(row, i_url, i_price, base+r'product/'+best_price_id, best_price, "")
+                new_row = get_new_row(row, i_url, i_price, terra_base+r'product/'+best_price_id, best_price, "")
                 request_body = {"valueInputOption": "RAW",
                                 "data": [{"range": 'a%i:o%i' % (index+first, index+first), "values": [new_row]}]}
                 request = service.spreadsheets().values().batchUpdate(spreadsheetId=spreadsheetId, body=request_body)
                 _ = request.execute()
 
-        if i_partnumber != -1:
+        if i_partnumber != -1 and i_partnumber < len(row):
             if row[i_partnumber]:
                 best_price, best_url, comment = get_best_price_from_onelec_terra_by_pn(row[i_partnumber])
                 if best_price != 0:
