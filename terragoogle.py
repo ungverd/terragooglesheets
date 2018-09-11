@@ -9,6 +9,7 @@ from bs4 import Tag
 
 from dataclasses import dataclass
 
+
 @dataclass
 class Product:
     id: str
@@ -21,9 +22,6 @@ class Product:
     partnumber: str
 
 
-#from collections import namedtuple
-
-#Product = namedtuple('Product', 'id actual delivery prognosis prognosis_type prices_actual prices_delivery partnumber')
 terra_base = r"https://www.terraelectronica.ru/"
 onelec_base = r'https://onelec.ru/products/'
 BIG_PRICE = 10000
@@ -275,7 +273,7 @@ def get_min_price_quantity_data(products: [Product], quantity: int, date: int) -
         return min_delivery_price, min_delivery_id, min_delivery_prognosis
 
 
-def get_new_row(row: list, i_url: int, i_price: int, best_price_id: str, best_price: float, comment:str) -> str:
+def get_new_row(row: list, i_url: int, i_price: int, best_price_id: str, best_price: float, comment: str) -> str:
     """
 
     :param row: row of table with positions
@@ -372,6 +370,52 @@ def get_best_price_from_onelec_terra_by_pn(partnumber: str)->(float, str, str):
         return onelec_price, onelec_url, terra_url + ' ' + str(terra_price)
     return terra_price, terra_url, onelec_url + ' ' + str(onelec_price)
 
+
+def get_best_price_by_PN(value: str) -> (float, str):
+    """
+    function gets best price from terra searhing by PN
+    :param value: value to search
+    :return: price, product id
+    """
+    url = terra_base + "search?text=" + value
+    r = requests.get(url)
+    link = r.url
+    products = []
+    if 'catalog' not in link:
+        soup = BeautifulSoup(r.text)
+        links = soup.find('ul', {'class': "search-list"})
+        link = links.contents[1].contents[1].attrs['href']
+        get_product_data(link, products)
+    else:
+        get_product_data(link.split('ru/')[1], products)
+    if products:
+        best_price, best_url, _ = get_min_price_quantity_data(products, 1, 5)
+        best_url = terra_base + 'product/' + best_url
+        if best_url:
+            PN = get_PN_from_terra(best_url)
+            price_onelec, url_onelec = get_onelec_pn(PN.lower())
+            comment = ""
+            if price_onelec > 0 and price_onelec < best_price:
+                best_price = price_onelec
+                comment = best_url
+                best_url = url_onelec
+        return best_price, best_url, comment
+    else:
+        return -1, "", ""
+
+
+def get_PN_from_terra(url: str):
+    """
+    gets PN from terra using product linf
+    :param url: link at product
+    :return: Partnumber
+    """
+    res = requests.get(url)
+    soup = BeautifulSoup(res.text)
+    pn = soup.find('h1')
+    return pn.contents[0].split()[0]
+
+
 def main(spreadsheetId, first, last):
     """
     gets position data from spreadsheet, searches it within terraelectronica, and adds it back to spreadshhet
@@ -428,10 +472,17 @@ def main(spreadsheetId, first, last):
                 if best_price != 0:
                     new_row = get_new_row(row, i_url, i_price, best_url, best_price, comment)
                     request_body = {"valueInputOption": "RAW",
-                                    "data": [{"range": 'a%i:o%i' % (
-                                    values.index(row) + first, values.index(row) + first), "values": [new_row]}]}
+                                    "data": [{"range": 'a%i:o%i' % (values.index(row) + first, values.index(row) + first), "values": [new_row]}]}
                     request = service.spreadsheets().values().batchUpdate(spreadsheetId=spreadsheetId, body=request_body)
                     _ = request.execute()
+        if row[i_type] == 'PN':
+            best_price, best_price_url, comment = get_best_price_by_PN(row[i_value])
+            new_row = get_new_row(row, i_url, i_price, best_price_url, best_price, comment)
+            request_body = {"valueInputOption": "RAW",
+                            "data": [{"range": 'a%i:o%i' % (
+                                values.index(row) + first, values.index(row) + first), "values": [new_row]}]}
+            request = service.spreadsheets().values().batchUpdate(spreadsheetId=spreadsheetId, body=request_body)
+            _ = request.execute()
 
 
 if __name__ == '__main__':
