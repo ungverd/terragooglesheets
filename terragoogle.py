@@ -1,5 +1,5 @@
 import httplib2
-import apiclient.discovery
+import googleapiclient.discovery
 from oauth2client.service_account import ServiceAccountCredentials
 import sys
 
@@ -56,13 +56,17 @@ def get_search_links_for_row(row: list, i_type: int, i_value: int, i_footprint: 
     search_links = []
     if row[i_type] == 'Resistor':
         position = row[i_value] + ' ' + row[i_footprint].split('_')[1]
+        position = position.replace("k", ' k')
+        position = position.replace('R', ' R')
         position += ' 1%'
         search_links = get_search_links_from_page(position)
     if row[i_type] == 'Capacitor':
         position = row[i_value] + ' ' + row[i_footprint].split('_')[1]
-        if 'u' or 'n' in row[i_value]:
+        if 'u' in row[i_value] or 'n' in row[i_value]:
             search_links = get_search_links_from_page(position + ' x7r')
             search_links.extend(get_search_links_from_page(position + ' x5r'))
+        else:
+                search_links = get_search_links_from_page(position)
     new_links = []
     for link in search_links:
         if '0603' in position:
@@ -116,6 +120,7 @@ def get_product_list(link: str) -> [str]:
     :return: list of product ids
     """
     url = terra_base + link
+    url = url + r'&f%5Bpresent%5D=1'
     r = requests.get(url)
     soup = BeautifulSoup(r.text)
     pages = soup.findAll('li', {'class': 'waves-effect'})
@@ -144,15 +149,18 @@ def get_actual_info(product_id: str) -> (int, dict, str):
     soup = BeautifulSoup(res.text)
     actual = soup.find('div', {'class': 'box-title'})
     partnumber = soup.find('h1', {'class': 'truncate'})
-    partnumber = partnumber.contents[0].split()[0]
-    if actual:
-        actual = [tag for tag in actual if isinstance(tag, Tag)]
-        actual_quantity = int(actual[0].contents[0].replace("шт.", ""))
-        price_data = [tag for tag in soup.find('span', {'class': 'prices'}) if isinstance(tag, Tag)]
-        prices_actual = {}
-        for price in price_data:
-            prices_actual[int(price.attrs['data-count'])] = float(price.attrs['data-price'])
-        return actual_quantity, prices_actual, partnumber
+    try:
+        partnumber = partnumber.contents[0].split()[0]
+        if actual:
+            actual = [tag for tag in actual if isinstance(tag, Tag)]
+            actual_quantity = int(actual[0].contents[0].replace("шт.", ""))
+            price_data = [tag for tag in soup.find('span', {'class': 'prices'}) if isinstance(tag, Tag)]
+            prices_actual = {}
+            for price in price_data:
+                prices_actual[int(price.attrs['data-count'])] = float(price.attrs['data-price'])
+            return actual_quantity, prices_actual, partnumber
+    except AttributeError:
+        print("Error here " + product_id)
     return 0, {}, partnumber
 
 
@@ -180,7 +188,11 @@ def get_delivery_info(product_id: str) -> (int, int, str, dict):
             prognosis = delivery_data[1].contents[0]
             if "недел" in prognosis:
                 prognosis_type = "Weeks"
-                prognosis = int(prognosis.split()[2].split('-')[0])
+                if "более" in prognosis:
+                    prognosis = [ch for ch in list(prognosis) if ch.isdigit()]
+                    prognosis = int("".join(prognosis))
+                else:
+                    prognosis = int(prognosis.split()[2].split('-')[0])
             else:
                 if "дн" in prognosis:
                     prognosis_type = "Days"
@@ -202,12 +214,16 @@ def get_product_data(link: str, products: [Product]):
     """
     product_ids = get_product_list(link)
     for product_id in product_ids:
+        print(product_id)
+        if (product_id == '1462285'):
+            pass
         actual, prices_actual, partnumber = get_actual_info(product_id)
         delivery, prognosis, prognosis_type, prices_delivery = get_delivery_info(product_id)
         products.append(
             Product(id=product_id, actual=actual, delivery=delivery, prices_actual=prices_actual,
                     prices_delivery=prices_delivery, prognosis=prognosis,
                     prognosis_type=prognosis_type, partnumber=partnumber))
+    print("finished")
     return
 
 
@@ -224,17 +240,19 @@ def get_min_price_actual_with_quantity(products: [Product], quantity: int) -> (s
         if product.actual >= quantity:
             min_price = product.prices_actual[1]
             min_id = product.id
+            min_partnumber = product.partnumber
             for q in product.prices_actual.keys():
                 if q <= quantity and min_price >= product.prices_actual[q]:
                     min_price = product.prices_actual[q]
-            actual_prices[product.id] = min_price
+            actual_prices[product.id] = [min_price, min_partnumber]
     if actual_prices:
         for product in actual_prices.keys():
-            if actual_prices[product] < min_price:
+            if actual_prices[product][0] < min_price:
                 min_id = product
-                min_price = actual_prices[product]
-        return min_id, min_price
-    return "0", -1
+                min_price = actual_prices[product][0]
+                min_partnumber = actual_prices[product][1]
+        return min_id, min_price, min_partnumber
+    return "0", -1, 0
 
 
 def get_min_price_quantity_data(products: [Product], quantity: int, date: int) -> (float, str, int):
@@ -245,7 +263,7 @@ def get_min_price_quantity_data(products: [Product], quantity: int, date: int) -
     :param quantity: required qiantity
     :return: best price, id of best offer, days of delivery
     """
-    min_id, min_price_actual = get_min_price_actual_with_quantity(products, quantity)
+    min_id, min_price_actual, min_partnumber = get_min_price_actual_with_quantity(products, quantity)
     delivery_prices = {}
     for product in products:
         if product.delivery >= quantity:
@@ -255,7 +273,7 @@ def get_min_price_quantity_data(products: [Product], quantity: int, date: int) -
                 for q in product.prices_delivery.keys():
                     if q <= quantity and min_price >= product.prices_delivery[q]:
                         min_price = product.prices_delivery[q]
-                        delivery_prices[product.id] = [min_price, prognosis]
+                        delivery_prices[product.id] = [min_price, prognosis, product.partnumber]
     if delivery_prices:
         min_delivery_price = min_price
         for product in delivery_prices.keys():
@@ -263,25 +281,28 @@ def get_min_price_quantity_data(products: [Product], quantity: int, date: int) -
                 min_delivery_id = product
                 min_delivery_price = delivery_prices[product][0]
                 min_delivery_prognosis = delivery_prices[product][1]
+                min_partnumber = delivery_prices[product][2]
     else:
-        return min_price_actual, min_id, 1
+        return min_price_actual, min_id, 1, 0
     if min_price == 0:
-        return min_delivery_price, min_delivery_id, min_delivery_prognosis
+        return min_delivery_price, min_delivery_id, min_delivery_prognosis, min_partnumber
     if min_price_actual <= min_delivery_price:
-        return min_price_actual, min_id, 1
+        return min_price_actual, min_id, 1, min_partnumber
     else:
-        return min_delivery_price, min_delivery_id, min_delivery_prognosis
+        return min_delivery_price, min_delivery_id, min_delivery_prognosis, min_partnumber
 
 
-def get_new_row(row: list, i_url: int, i_price: int, best_price_id: str, best_price: float, comment: str) -> str:
+def get_new_row(row: list, i_url: int, i_price: int, i_pn:int,  best_price_id: str, best_price: float, comment: str, pn: str) -> str:
     """
 
     :param row: row of table with positions
     :param i_url: index of url column
     :param i_price: index of price column
+    :param i_pn: index pf partnumber column
     :param best_price_id: id of best product
     :param best_price: best price
     :param comment: string with not best price and url
+    :param pn: new partnumber
     :return:
     """
     new_row = row
@@ -300,6 +321,7 @@ def get_new_row(row: list, i_url: int, i_price: int, best_price_id: str, best_pr
         new_row[11] = best_price
     if comment:
         new_row[12] = comment
+    new_row[i_pn] = pn
     return new_row
 
 
@@ -342,7 +364,7 @@ def get_onelec_pn(partnumber: str) -> (float, str):
                 try:
                     delivery = int(tag.contents[0].text.split()[1])
                 except ValueError:
-                    return 0, ""
+                    continue
                 if delivery <= 5 and 'по запросу' not in tag.contents[1].text:
                     price = float(
                         tag.contents[2].contents[0].contents[0]['data-price-rub'].split()[0].replace(',', '.'))
@@ -428,7 +450,7 @@ def main(spreadsheetId, first, last):
                                                                    ['https://www.googleapis.com/auth/spreadsheets',
                                                                     'https://www.googleapis.com/auth/drive'])
     httpAuth = credentials.authorize(httplib2.Http())
-    service = apiclient.discovery.build('sheets', 'v4', http=httpAuth)
+    service = googleapiclient.discovery.build('sheets', 'v4', http=httpAuth)
 
     answer = service.spreadsheets().values().get(spreadsheetId=spreadsheetId, range='a1:o1').execute()
     columns = answer['values'][0]
@@ -459,8 +481,8 @@ def main(spreadsheetId, first, last):
                         quantity = int(row[i_quantity])
                     except ValueError:
                         continue
-                best_price, best_price_id, best_price_date = get_min_price_quantity_data(products, quantity, 5)
-                new_row = get_new_row(row, i_url, i_price, terra_base+r'product/'+best_price_id, best_price, "")
+                best_price, best_price_id, best_price_date, best_pn = get_min_price_quantity_data(products, quantity, 5)
+                new_row = get_new_row(row, i_url, i_price, i_partnumber, terra_base+r'product/'+best_price_id, best_price, "", best_pn)
                 request_body = {"valueInputOption": "RAW",
                                 "data": [{"range": 'a%i:o%i' % (index+first, index+first), "values": [new_row]}]}
                 request = service.spreadsheets().values().batchUpdate(spreadsheetId=spreadsheetId, body=request_body)
@@ -470,14 +492,14 @@ def main(spreadsheetId, first, last):
             if row[i_partnumber]:
                 best_price, best_url, comment = get_best_price_from_onelec_terra_by_pn(row[i_partnumber])
                 if best_price != 0:
-                    new_row = get_new_row(row, i_url, i_price, best_url, best_price, comment)
+                    new_row = get_new_row(row, i_url, i_price, i_partnumber, best_url, best_price, comment, row[i_partnumber])
                     request_body = {"valueInputOption": "RAW",
                                     "data": [{"range": 'a%i:o%i' % (values.index(row) + first, values.index(row) + first), "values": [new_row]}]}
                     request = service.spreadsheets().values().batchUpdate(spreadsheetId=spreadsheetId, body=request_body)
                     _ = request.execute()
         if row[i_type] == 'PN':
             best_price, best_price_url, comment = get_best_price_by_PN(row[i_value])
-            new_row = get_new_row(row, i_url, i_price, best_price_url, best_price, comment)
+            new_row = get_new_row(row, i_url, i_price, i_partnumber, best_price_url, best_price, comment, row[i_value])
             request_body = {"valueInputOption": "RAW",
                             "data": [{"range": 'a%i:o%i' % (
                                 values.index(row) + first, values.index(row) + first), "values": [new_row]}]}
