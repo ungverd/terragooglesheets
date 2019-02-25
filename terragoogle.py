@@ -56,8 +56,16 @@ def get_search_links_for_row(row: list, i_type: int, i_value: int, i_footprint: 
     search_links = []
     if row[i_type] == 'Resistor':
         position = row[i_value] + ' ' + row[i_footprint].split('_')[1]
-        position = position.replace("k", ' k')
-        position = position.replace('R', ' R')
+
+        #fix for terra bug for some positions, 57k ot 5k7 is not recognized, replaced by 57000 r or 5700 r
+        position = position.lower()
+        i = position.index('k')
+        if i+1 < len(position) and position[i+1].isdigit():
+            digit = position[i+1]
+            position.replace('k', digit+'00 r')
+        else:
+            position.replace('k', '000 r')
+
         position += ' 1%'
         search_links = get_search_links_from_page(position)
     if row[i_type] == 'Capacitor':
@@ -66,7 +74,10 @@ def get_search_links_for_row(row: list, i_type: int, i_value: int, i_footprint: 
             search_links = get_search_links_from_page(position + ' x7r')
             search_links.extend(get_search_links_from_page(position + ' x5r'))
         else:
-                search_links = get_search_links_from_page(position)
+            #fix terra bug
+            position = position.lower()
+            position = position.replace('pf', ' pf')
+            search_links = get_search_links_from_page(position)
     new_links = []
     for link in search_links:
         if '0603' in position:
