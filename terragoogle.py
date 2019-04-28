@@ -59,15 +59,16 @@ def get_search_links_for_row(row: list, i_type: int, i_value: int, i_footprint: 
 
         #fix for terra bug for some positions, 57k ot 5k7 is not recognized, replaced by 57000 r or 5700 r
         position = position.lower()
-        i = position.index('k')
-        if i+1 < len(position) and position[i+1].isdigit():
-            digit = position[i+1]
-            position.replace('k', digit+'00 r')
-        else:
-            position.replace('k', '000 r')
-
-        position += ' 1%'
+        if 'k' in position:
+            i = position.index('k')
+            if i+1 < len(position) and position[i+1].isdigit():
+                digit = position[i+1]
+                position.replace('k', digit+'00 r')
+            else:
+                position.replace('k', '000 r')
         search_links = get_search_links_from_page(position)
+        search_links = [link + "&ef%5B1202026%5D%5Bvalue%5D%5B%5D=%C2%B1+1%25" for link in search_links]
+
     if row[i_type] == 'Capacitor':
         position = row[i_value] + ' ' + row[i_footprint].split('_')[1]
         if 'u' in row[i_value] or 'n' in row[i_value]:
@@ -101,7 +102,8 @@ def get_search_links_from_page(search_text) -> [str]:
     try:
         search_links = [link.contents for link in links.contents if isinstance(link, Tag)]
     except AttributeError:
-        raise
+        print("No search links")
+        return
     real_search_links = []
     for link in search_links:
         for tag in link:
@@ -226,8 +228,6 @@ def get_product_data(link: str, products: [Product]):
     product_ids = get_product_list(link)
     for product_id in product_ids:
         print(product_id)
-        if (product_id == '1462285'):
-            pass
         actual, prices_actual, partnumber = get_actual_info(product_id)
         delivery, prognosis, prognosis_type, prices_delivery = get_delivery_info(product_id)
         products.append(
@@ -417,12 +417,13 @@ def get_best_price_by_PN(value: str) -> (float, str):
     if 'catalog' not in link:
         soup = BeautifulSoup(r.text)
         links = soup.find('ul', {'class': "search-list"})
-        link = links.contents[1].contents[1].attrs['href']
-        get_product_data(link, products)
+        if links:
+            link = links.contents[1].contents[1].attrs['href']
+            get_product_data(link, products)
     else:
         get_product_data(link.split('ru/')[1], products)
     if products:
-        best_price, best_url, _ = get_min_price_quantity_data(products, 1, 5)
+        best_price, best_url, _, _ = get_min_price_quantity_data(products, 1, 5)
         best_url = terra_base + 'product/' + best_url
         if best_url:
             PN = get_PN_from_terra(best_url)
@@ -435,6 +436,7 @@ def get_best_price_by_PN(value: str) -> (float, str):
         return best_price, best_url, comment
     else:
         return -1, "", ""
+
 
 
 def get_PN_from_terra(url: str):
