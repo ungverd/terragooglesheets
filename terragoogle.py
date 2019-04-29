@@ -67,7 +67,7 @@ def get_search_links_for_row(row: list, i_type: int, i_value: int, i_footprint: 
             else:
                 position.replace('k', '000 r')
         search_links = get_search_links_from_page(position)
-        search_links = [link + "&ef%5B1202026%5D%5Bvalue%5D%5B%5D=%C2%B1+1%25" for link in search_links]
+        search_links = [link + "%26ef%255B1202026%255D%255Bvalue%255D%255B%255D%3D%25C2%25B1%2B1%2525" for link in search_links]
 
     if row[i_type] == 'Capacitor':
         position = row[i_value] + ' ' + row[i_footprint].split('_')[1]
@@ -118,7 +118,7 @@ def correct_link_for_0603(link: str) -> str:
     """
     0603 cage has metric and nonmetric varieties. This function excludes metric cage
     :param link: search link
-    :return: corrected link withoot metric 0603 (aka 0201)
+    :return: corrected link without metric 0603 (aka 0201)
     """
     query = link.split('%26')
     query = [q for q in query if '0201' not in q]
@@ -303,7 +303,7 @@ def get_min_price_quantity_data(products: [Product], quantity: int, date: int) -
         return min_delivery_price, min_delivery_id, min_delivery_prognosis, min_partnumber
 
 
-def get_new_row(row: list, i_url: int, i_price: int, i_pn:int,  best_price_id: str, best_price: float, comment: str, pn: str) -> str:
+def get_new_row(row: list, i_url: int, i_price: int, i_pn:int,  best_price_id: str, best_price: float, comment: str, pn: str, comment_text: str) -> str:
     """
 
     :param row: row of table with positions
@@ -319,7 +319,7 @@ def get_new_row(row: list, i_url: int, i_price: int, i_pn:int,  best_price_id: s
     new_row = row
     length = len(row)
     tail = []
-    for i in range(13-length):
+    for i in range(15-length):
         tail.append("")
     row.extend(tail)
     if i_url != -1:
@@ -333,6 +333,7 @@ def get_new_row(row: list, i_url: int, i_price: int, i_pn:int,  best_price_id: s
     if comment:
         new_row[12] = comment
     new_row[i_pn] = pn
+    new_row[14] = comment_text
     return new_row
 
 
@@ -494,8 +495,13 @@ def main(spreadsheetId, first, last):
                         quantity = int(row[i_quantity])
                     except ValueError:
                         continue
+                text_comment = "Any %s %s case %s" % (row[i_type], row[i_value], row[i_footprint].split('_')[1])
+                if row[i_type] == 'Resistor':
+                    text_comment += ' 1%'
+                if row[i_type] == 'Capacitor':
+                    text_comment += ", x5r or x7r or np0 isolator"
                 best_price, best_price_id, best_price_date, best_pn = get_min_price_quantity_data(products, quantity, 5)
-                new_row = get_new_row(row, i_url, i_price, i_partnumber, terra_base+r'product/'+best_price_id, best_price, "", best_pn)
+                new_row = get_new_row(row, i_url, i_price, i_partnumber, terra_base+r'product/'+best_price_id, best_price, "", best_pn, text_comment)
                 request_body = {"valueInputOption": "RAW",
                                 "data": [{"range": 'a%i:o%i' % (index+first, index+first), "values": [new_row]}]}
                 request = service.spreadsheets().values().batchUpdate(spreadsheetId=spreadsheetId, body=request_body)
@@ -512,7 +518,7 @@ def main(spreadsheetId, first, last):
                     _ = request.execute()
         if row[i_type] == 'PN':
             best_price, best_price_url, comment = get_best_price_by_PN(row[i_value])
-            new_row = get_new_row(row, i_url, i_price, i_partnumber, best_price_url, best_price, comment, row[i_value])
+            new_row = get_new_row(row, i_url, i_price, i_partnumber, best_price_url, best_price, comment, row[i_value], "")
             request_body = {"valueInputOption": "RAW",
                             "data": [{"range": 'a%i:o%i' % (
                                 values.index(row) + first, values.index(row) + first), "values": [new_row]}]}
