@@ -2,12 +2,11 @@ import httplib2
 import googleapiclient.discovery
 from oauth2client.service_account import ServiceAccountCredentials
 import sys
-
 import requests
 from bs4 import BeautifulSoup
 from bs4 import Tag
-
 from dataclasses import dataclass
+from typing import List, Union, Tuple
 
 
 @dataclass
@@ -25,8 +24,9 @@ class Product:
 terra_base = r"https://www.terraelectronica.ru/"
 onelec_base = r'https://onelec.ru/products/'
 BIG_PRICE = 10000
-
 CREDENTIALS_FILE = 'LSComponents.json'
+i_comment = 14
+i_second_url = 12
 
 
 def get_index(columns: list, name: str) -> int:
@@ -36,7 +36,7 @@ def get_index(columns: list, name: str) -> int:
     :param name:
     :return:
     """
-    i = -1
+    i: int = -1
     for column in columns:
         if name in column:
             i = columns.index(column)
@@ -45,7 +45,7 @@ def get_index(columns: list, name: str) -> int:
     return i
 
 
-def get_search_links_for_row(row: list, i_type: int, i_value: int, i_footprint: int) -> [str]:
+def get_search_links_for_row(row: list, i_type: int, i_value: int, i_footprint: int) -> List[str]:
     """
     :param row: row of spreadsheet with position data
     :param i_type: index of cell with position type
@@ -53,24 +53,24 @@ def get_search_links_for_row(row: list, i_type: int, i_value: int, i_footprint: 
     :param i_footprint:  index of cell with position footprint
     :return: searchlinks for this position
     """
-    search_links = []
+    search_links: List[str] = list()
+    position: str = (row[i_value] + ' ' + row[i_footprint].split('_')[1]).lower()
+    # for resistors
     if row[i_type] == 'Resistor':
-        position = row[i_value] + ' ' + row[i_footprint].split('_')[1]
-
-        #fix for terra bug for some positions, 57k ot 5k7 is not recognized, replaced by 57000 r or 5700 r
-        position = position.lower()
+        # get right format: 4k7 as 4700 and 47k as 47000
         if 'k' in position:
-            i = position.index('k')
+            i: inr = position.index('k')
             if i+1 < len(position) and position[i+1].isdigit():
-                digit = position[i+1]
+                digit: str = position[i+1]
                 position.replace('k', digit+'00 r')
             else:
                 position.replace('k', '000 r')
         search_links = get_search_links_from_page(position)
-        search_links = [link + "%26ef%255B1202026%255D%255Bvalue%255D%255B%255D%3D%25C2%25B1%2B1%2525" for link in search_links]
-
+        search_links = [link + "%26ef%255B1202026%255D%255Bvalue%255D%255B%255D%3D%25C2%25B1%2B1%2525"
+                        for link in search_links]
+    #for capacitors
     if row[i_type] == 'Capacitor':
-        position = row[i_value] + ' ' + row[i_footprint].split('_')[1]
+        # add correct isolator
         if 'u' in row[i_value] or 'n' in row[i_value]:
             search_links = get_search_links_from_page(position + ' x7r')
             search_links.extend(get_search_links_from_page(position + ' x5r'))
@@ -79,7 +79,8 @@ def get_search_links_for_row(row: list, i_type: int, i_value: int, i_footprint: 
             position = position.lower()
             position = position.replace('pf', ' pf')
             search_links = get_search_links_from_page(position)
-    new_links = []
+    # correct 0603 cases: remove metric 0603
+    new_links: List[str]= list()
     for link in search_links:
         if '0603' in position:
             new_links.append(correct_link_for_0603(link))
@@ -88,14 +89,14 @@ def get_search_links_for_row(row: list, i_type: int, i_value: int, i_footprint: 
     return new_links
 
 
-def get_search_links_from_page(search_text) -> [str]:
+def get_search_links_from_page(search_text) -> List[str]:
     """
     function gets list of search links for selected query with "smd" in description
     :param search_text - query to search (10u 16V 0805) for example
-    :return: list of links with searc results
+    :return: list of links with search results
     """
-    search_query = "+".join(search_text.split())
-    url = terra_base + "search?text=" + search_query
+    search_query: str = "+".join(search_text.split())
+    url: str = terra_base + "search?text=" + search_query
     r = requests.get(url)
     soup = BeautifulSoup(r.text)
     links = soup.find('ul', {'class': "search-list"})
@@ -103,12 +104,12 @@ def get_search_links_from_page(search_text) -> [str]:
         search_links = [link.contents for link in links.contents if isinstance(link, Tag)]
     except AttributeError:
         print("No search links")
-        return
-    real_search_links = []
+        return list()
+    real_search_links: List[str] = list()
     for link in search_links:
         for tag in link:
             if isinstance(tag, Tag):
-                search_string = tag.contents[0]
+                search_string: str = tag.contents[0]
                 if 'SMD' in search_string:
                     real_search_links.append(tag.attrs['href'])
     return real_search_links
@@ -126,18 +127,18 @@ def correct_link_for_0603(link: str) -> str:
     return link
 
 
-def get_product_list(link: str) -> [str]:
+def get_product_list(link: str) -> List[str]:
     """
     function gets products ids using search link
     :param link: search link
     :return: list of product ids
     """
-    url = terra_base + link
+    url: str = terra_base + link
     url = url + r'&f%5Bpresent%5D=1'
     r = requests.get(url)
     soup = BeautifulSoup(r.text)
     pages = soup.findAll('li', {'class': 'waves-effect'})
-    products = []
+    products = list()
     if pages:
         for page in set(pages):
             url = terra_base + page.contents[0].attrs['href']
@@ -147,28 +148,28 @@ def get_product_list(link: str) -> [str]:
             products.extend([link.attrs['data-code'] for link in links])
         return products
     links = soup.findAll('td', {'class': 'table-item-name'})
-    products = [link.attrs['data-code'] for link in links]
+    products: List[str] = [link.attrs['data-code'] for link in links]
     return products
 
 
-def get_actual_info(product_id: str) -> (int, dict, str):
+def get_actual_info(product_id: str) -> Tuple[int, dict, str]:
     """
     function gets actual price and quantity of product. If on demand only return 0 and {}
     :param product_id: product id
     :return: quantity, dictionary with prices, partnumber
     """
-    url = terra_base + "product/" + product_id
+    url: str = terra_base + "product/" + product_id
     res = requests.get(url)
     soup = BeautifulSoup(res.text)
-    actual = soup.find('div', {'class': 'box-title'})
-    partnumber = soup.find('h1', {'class': 'truncate'})
+    actual: str = soup.find('div', {'class': 'box-title'})
+    partnumber: str = soup.find('h1', {'class': 'truncate'})
     try:
         partnumber = partnumber.contents[0].split()[0]
         if actual:
             actual = [tag for tag in actual if isinstance(tag, Tag)]
-            actual_quantity = int(actual[0].contents[0].replace("шт.", ""))
+            actual_quantity: int = int(actual[0].contents[0].replace("шт.", ""))
             price_data = [tag for tag in soup.find('span', {'class': 'prices'}) if isinstance(tag, Tag)]
-            prices_actual = {}
+            prices_actual = dict()
             for price in price_data:
                 prices_actual[int(price.attrs['data-count'])] = float(price.attrs['data-price'])
             return actual_quantity, prices_actual, partnumber
@@ -177,16 +178,15 @@ def get_actual_info(product_id: str) -> (int, dict, str):
     return 0, {}, partnumber
 
 
-def get_delivery_info(product_id: str) -> (int, int, str, dict):
+def get_delivery_info(product_id: str) -> Tuple[int, int, str, dict]:
     """
     function gets delivery data for product
     :param product_id: id of product
     :return: quantity available, number of delivery units, delivery unit: day or week, delivery prices
     """
-    data = '{"jsonrpc":"2.0","method":"update_offers","params":{"code":%s},"id":"objUpdateOffers||1"}' % product_id
+    data: str = '{"jsonrpc":"2.0","method":"update_offers","params":{"code":%s},"id":"objUpdateOffers||1"}' % product_id
     response = requests.post('https://www.terraelectronica.ru/services', data=data)
-    res = response.text
-    # print(product_id)
+    res: str = response.text
     res = res.split('"best_offer":')[1]
     res = res.replace(r'\"', r'"')
     res = res.replace("\n", "")
@@ -196,26 +196,29 @@ def get_delivery_info(product_id: str) -> (int, int, str, dict):
         delivery_data = [tag for tag in soup.find('div', {'class': 'box-title'}) if isinstance(tag, Tag)]
         actual = delivery_data[0]
         if 'ПОД ЗАКАЗ' in actual.contents[0]:
-            quantity = actual.contents[1].contents[0]
-            quantity = int(quantity.replace("шт.", ""))
-            prognosis = delivery_data[1].contents[0]
-            if "недел" in prognosis:
-                prognosis_type = "Weeks"
-                if "более" in prognosis:
-                    prognosis = [ch for ch in list(prognosis) if ch.isdigit()]
-                    prognosis = int("".join(prognosis))
+            quantity_str: str = actual.contents[1].contents[0]
+            quantity: int = int(quantity_str.replace("шт.", ""))
+            prognosis_str: str = delivery_data[1].contents[0]
+            prognosis = -1
+            if "недел" in prognosis_str:
+                prognosis_type: str = "Weeks"
+                if "более" in prognosis_str:
+                    prognosis_str = [ch for ch in list(prognosis_str) if ch.isdigit()]
+                    prognosis = int("".join(prognosis_str))
                 else:
-                    prognosis = int(prognosis.split()[2].split('-')[0])
+                    prognosis = int(prognosis_str.split()[2].split('-')[0])
             else:
-                if "дн" in prognosis:
+                if "дн" in prognosis_str:
                     prognosis_type = "Days"
-                    prognosis = int(prognosis.split()[2])
-        price_data = [tag for tag in soup.find('span', {'class': 'prices'}) if isinstance(tag, Tag)]
-        prices_delivery = {}
-        for price in price_data:
-            prices_delivery[int(price.attrs['data-count'])] = float(price.attrs['data-price'])
-        return quantity, prognosis, prognosis_type, prices_delivery
-    return 0, 0, None, {}
+                    prognosis = int(prognosis_str.split()[2])
+                else:
+                    prognosis_type = "Unknown"
+            price_data = [tag for tag in soup.find('span', {'class': 'prices'}) if isinstance(tag, Tag)]
+            prices_delivery = dict()
+            for price in price_data:
+                 prices_delivery[int(price.attrs['data-count'])] = float(price.attrs['data-price'])
+            return quantity, prognosis, prognosis_type, prices_delivery
+    return 0, 0, "", {}
 
 
 def get_product_data(link: str, products: [Product]):
@@ -238,20 +241,21 @@ def get_product_data(link: str, products: [Product]):
     return
 
 
-def get_min_price_actual_with_quantity(products: [Product], quantity: int) -> (str, float):
+def get_min_price_actual_with_quantity(products: List[Product], quantity: int) -> Tuple[str, float, str]:
     """
     gets actual offer for position witn minimal price and not less then quantity items (price must be chosen
     for required quantity)
     :param quantity: required quantity of items
     :param products: list with offers for this position
-    :return: id of best offer, price of best offer
+    :return: id of best offer, price of best offer, partnumber
     """
-    actual_prices = {}
+    actual_prices = dict()
+    min_price, min_id, min_partnumber = BIG_PRICE, "", ""
     for product in products:
         if product.actual >= quantity:
-            min_price = product.prices_actual[1]
-            min_id = product.id
-            min_partnumber = product.partnumber
+            min_price: float = product.prices_actual[1]
+            min_id: str = product.id
+            min_partnumber: str = product.partnumber
             for q in product.prices_actual.keys():
                 if q <= quantity and min_price >= product.prices_actual[q]:
                     min_price = product.prices_actual[q]
@@ -263,24 +267,25 @@ def get_min_price_actual_with_quantity(products: [Product], quantity: int) -> (s
                 min_price = actual_prices[product][0]
                 min_partnumber = actual_prices[product][1]
         return min_id, min_price, min_partnumber
-    return "0", -1, 0
+    return "", -1, ""
 
 
-def get_min_price_quantity_data(products: [Product], quantity: int, date: int) -> (float, str, int):
+def get_min_price_quantity_data(products: List[Product], quantity: int, date: int) -> Tuple[float, str, int, str]:
     """
     get best offer for quanity units with no more then date days of delivery
     :param products: list if offers
     :param date: max days of delivery
     :param quantity: required qiantity
-    :return: best price, id of best offer, days of delivery
+    :return: best price, id of best offer, days of delivery, partnumber
     """
     min_id, min_price_actual, min_partnumber = get_min_price_actual_with_quantity(products, quantity)
-    delivery_prices = {}
+    delivery_prices = dict()
+    min_price, min_delivery_id, min_delivery_prognosis = BIG_PRICE, "", -1
     for product in products:
         if product.delivery >= quantity:
             prognosis = product.prognosis if product.prognosis_type == "Days" else product.prognosis * 7
             if prognosis <= date:
-                min_price = BIG_PRICE
+                min_price: float = BIG_PRICE
                 for q in product.prices_delivery.keys():
                     if q <= quantity and min_price >= product.prices_delivery[q]:
                         min_price = product.prices_delivery[q]
@@ -289,12 +294,12 @@ def get_min_price_quantity_data(products: [Product], quantity: int, date: int) -
         min_delivery_price = min_price
         for product in delivery_prices.keys():
             if delivery_prices[product][0] < min_delivery_price:
-                min_delivery_id = product
-                min_delivery_price = delivery_prices[product][0]
-                min_delivery_prognosis = delivery_prices[product][1]
-                min_partnumber = delivery_prices[product][2]
+                min_delivery_id: str = product
+                min_delivery_price: float = delivery_prices[product][0]
+                min_delivery_prognosis: int = delivery_prices[product][1]
+                min_partnumber: str = delivery_prices[product][2]
     else:
-        return min_price_actual, min_id, 1, 0
+        return min_price_actual, min_id, 1, ""
     if min_price == 0:
         return min_delivery_price, min_delivery_id, min_delivery_prognosis, min_partnumber
     if min_price_actual <= min_delivery_price:
@@ -303,9 +308,10 @@ def get_min_price_quantity_data(products: [Product], quantity: int, date: int) -
         return min_delivery_price, min_delivery_id, min_delivery_prognosis, min_partnumber
 
 
-def get_new_row(row: list, i_url: int, i_price: int, i_pn:int,  best_price_id: str, best_price: float, comment: str, pn: str, comment_text: str) -> str:
+def get_new_row(row: List[str], i_url: int, i_price: int, i_pn:int,  best_price_id: str, best_price: float, comment: str, pn: str, comment_text: str) -> List[Union[int, float, str]]:
     """
 
+    :param comment_text: str with comments
     :param row: row of table with positions
     :param i_url: index of url column
     :param i_price: index of price column
@@ -314,11 +320,11 @@ def get_new_row(row: list, i_url: int, i_price: int, i_pn:int,  best_price_id: s
     :param best_price: best price
     :param comment: string with not best price and url
     :param pn: new partnumber
-    :return:
+    :return: new row
     """
-    new_row = row
-    length = len(row)
-    tail = []
+    new_row: List[Union[int, float, str]] = row
+    length: int = len(row)
+    tail = list()
     for i in range(15-length):
         tail.append("")
     row.extend(tail)
@@ -337,16 +343,16 @@ def get_new_row(row: list, i_url: int, i_price: int, i_pn:int,  best_price_id: s
     return new_row
 
 
-def get_terra_by_pn(partnumber:str) -> (float, str):
+def get_terra_by_pn(partnumber:str) -> Tuple[float, str]:
     """
     gets data from terra by partnumber
     :param partnumber:
     :return: price, url
     """
-    url = terra_base + "search?text=" + partnumber
+    url: str = terra_base + "search?text=" + partnumber
     res = requests.get(url)
-    terra_url = ""
-    terra_price = 0
+    terra_url: str = ""
+    terra_price: float = 0
     if 'product' in res.url:
         terra_url = res.url
         soup = BeautifulSoup(res.text)
@@ -357,16 +363,16 @@ def get_terra_by_pn(partnumber:str) -> (float, str):
     return terra_price, terra_url
 
 
-def get_onelec_pn(partnumber: str) -> (float, str):
+def get_onelec_pn(partnumber: str) -> Tuple[float, str]:
     """
     gets url and price from onelec
     :param partnumber: partnumber of product
     :return: price, url
     """
-    url = onelec_base + partnumber.lower()
+    url: str = onelec_base + partnumber.lower()
     res = requests.get(url)
-    onelec_url = ""
-    onelec_price = 0
+    onelec_url: str = ""
+    onelec_price: float = 0
     if res.status_code != 404:
         onelec_url = url
         soup = BeautifulSoup(res.text)
@@ -374,11 +380,11 @@ def get_onelec_pn(partnumber: str) -> (float, str):
         try:
             for tag in [tag for tag in table.contents[0].contents if isinstance(tag, Tag)]:
                 try:
-                    delivery = int(tag.contents[0].text.split()[1])
+                    delivery: int = int(tag.contents[0].text.split()[1])
                 except ValueError:
                     continue
                 if delivery <= 5 and 'по запросу' not in tag.contents[1].text:
-                    price = float(
+                    price: float = float(
                         tag.contents[2].contents[0].contents[0]['data-price-rub'].split()[0].replace(',', '.'))
                     if onelec_price == 0:
                         onelec_price = price
@@ -390,7 +396,7 @@ def get_onelec_pn(partnumber: str) -> (float, str):
     return onelec_price, onelec_url
 
 
-def get_best_price_from_onelec_terra_by_pn(partnumber: str)->(float, str, str):
+def get_best_price_from_onelec_terra_by_pn(partnumber: str)->Tuple[float, str, str]:
     """
     function gets best price from onelec and terra by partnumber and selects best
     :param partnumber: partnumber for spreadsheet
@@ -405,16 +411,17 @@ def get_best_price_from_onelec_terra_by_pn(partnumber: str)->(float, str, str):
     return terra_price, terra_url, onelec_url + ' ' + str(onelec_price)
 
 
-def get_best_price_by_PN(value: str) -> (float, str):
+def get_best_price_by_pn(value: str) -> Tuple[float, str, str]:
     """
     function gets best price from terra searhing by PN
     :param value: value to search
-    :return: price, product id
+    :return: price, product id, comment (with more expensive product)
     """
-    url = terra_base + "search?text=" + value
+    url: str = terra_base + "search?text=" + value
     r = requests.get(url)
     link = r.url
-    products = []
+    products = list()
+    comment = ""
     if 'catalog' not in link:
         soup = BeautifulSoup(r.text)
         links = soup.find('ul', {'class': "search-list"})
@@ -427,10 +434,10 @@ def get_best_price_by_PN(value: str) -> (float, str):
         best_price, best_url, _, _ = get_min_price_quantity_data(products, 1, 5)
         best_url = terra_base + 'product/' + best_url
         if best_url:
-            PN = get_PN_from_terra(best_url)
+            pn = get_pn_from_terra(best_url)
             price_onelec, url_onelec = get_onelec_pn(PN.lower())
             comment = ""
-            if price_onelec > 0 and price_onelec < best_price:
+            if 0 < price_onelec < best_price:
                 best_price = price_onelec
                 comment = best_url
                 best_url = url_onelec
@@ -439,8 +446,7 @@ def get_best_price_by_PN(value: str) -> (float, str):
         return -1, "", ""
 
 
-
-def get_PN_from_terra(url: str):
+def get_pn_from_terra(url: str):
     """
     gets PN from terra using product linf
     :param url: link at product
@@ -460,6 +466,7 @@ def main(spreadsheetId, first, last):
     :param last: number of last string with data
     :return:
     """
+    # move to separate function
     credentials = ServiceAccountCredentials.from_json_keyfile_name(CREDENTIALS_FILE,
                                                                    ['https://www.googleapis.com/auth/spreadsheets',
                                                                     'https://www.googleapis.com/auth/drive'])
@@ -468,6 +475,7 @@ def main(spreadsheetId, first, last):
 
     answer = service.spreadsheets().values().get(spreadsheetId=spreadsheetId, range='a1:o1').execute()
     columns = answer['values'][0]
+    # move to separate function
     i_type = get_index(columns, "Type")
     i_value = get_index(columns, "Value")
     i_quantity = get_index(columns, "Quantity")
@@ -495,6 +503,7 @@ def main(spreadsheetId, first, last):
                         quantity = int(row[i_quantity])
                     except ValueError:
                         continue
+                # move comment creation to other function
                 text_comment = "Any %s %s case %s" % (row[i_type], row[i_value], row[i_footprint].split('_')[1])
                 if row[i_type] == 'Resistor':
                     text_comment += ' 1%'
@@ -511,13 +520,13 @@ def main(spreadsheetId, first, last):
             if row[i_partnumber]:
                 best_price, best_url, comment = get_best_price_from_onelec_terra_by_pn(row[i_partnumber])
                 if best_price != 0:
-                    new_row = get_new_row(row, i_url, i_price, i_partnumber, best_url, best_price, comment, row[i_partnumber])
+                    new_row = get_new_row(row, i_url, i_price, i_partnumber, best_url, best_price, comment, row[i_partnumber], "")
                     request_body = {"valueInputOption": "RAW",
                                     "data": [{"range": 'a%i:o%i' % (values.index(row) + first, values.index(row) + first), "values": [new_row]}]}
                     request = service.spreadsheets().values().batchUpdate(spreadsheetId=spreadsheetId, body=request_body)
                     _ = request.execute()
         if row[i_type] == 'PN':
-            best_price, best_price_url, comment = get_best_price_by_PN(row[i_value])
+            best_price, best_price_url, comment = get_best_price_by_pn(row[i_value])
             new_row = get_new_row(row, i_url, i_price, i_partnumber, best_price_url, best_price, comment, row[i_value], "")
             request_body = {"valueInputOption": "RAW",
                             "data": [{"range": 'a%i:o%i' % (
