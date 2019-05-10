@@ -53,6 +53,8 @@ def get_search_links_for_row(row: list, i_type: int, i_value: int, i_footprint: 
     :param i_footprint:  index of cell with position footprint
     :return: searchlinks for this position
     """
+    if row[i_value].lower() == 'value':
+        return list()
     search_links: List[str] = list()
     position: str = (row[i_value] + ' ' + row[i_footprint].split('_')[1]).lower()
     # for resistors
@@ -339,7 +341,7 @@ def get_new_row(row: List[str], i_url: int, i_price: int, i_pn:int,  best_price_
     if comment:
         new_row[12] = comment
     new_row[i_pn] = pn
-    new_row[14] = comment_text
+    new_row[13] = comment_text
     return new_row
 
 
@@ -435,7 +437,7 @@ def get_best_price_by_pn(value: str) -> Tuple[float, str, str]:
         best_url = terra_base + 'product/' + best_url
         if best_url:
             pn = get_pn_from_terra(best_url)
-            price_onelec, url_onelec = get_onelec_pn(PN.lower())
+            price_onelec, url_onelec = get_onelec_pn(pn.lower())
             comment = ""
             if 0 < price_onelec < best_price:
                 best_price = price_onelec
@@ -490,31 +492,33 @@ def main(spreadsheetId, first, last):
     answer = service.spreadsheets().values().get(spreadsheetId=spreadsheetId, range='a%i:o%i' % (first, last)).execute()
     values = answer.get('values', [])
     for (index, row) in enumerate(values):
-        search_links = get_search_links_for_row(row, i_type, i_value, i_footprint)
-        if search_links:
-            products = []
-            for link in search_links:
-                get_product_data(link, products)
-            if products:
-                if i_quantity == -1:
-                    quantity = 1
-                else:
-                    try:
-                        quantity = int(row[i_quantity])
-                    except ValueError:
-                        continue
-                # move comment creation to other function
-                text_comment = "Any %s %s case %s" % (row[i_type], row[i_value], row[i_footprint].split('_')[1])
-                if row[i_type] == 'Resistor':
-                    text_comment += ' 1%'
-                if row[i_type] == 'Capacitor':
-                    text_comment += ", x5r or x7r or np0 isolator"
-                best_price, best_price_id, best_price_date, best_pn = get_min_price_quantity_data(products, quantity, 5)
-                new_row = get_new_row(row, i_url, i_price, i_partnumber, terra_base+r'product/'+best_price_id, best_price, "", best_pn, text_comment)
-                request_body = {"valueInputOption": "RAW",
-                                "data": [{"range": 'a%i:o%i' % (index+first, index+first), "values": [new_row]}]}
-                request = service.spreadsheets().values().batchUpdate(spreadsheetId=spreadsheetId, body=request_body)
-                _ = request.execute()
+        if row[i_type].lower() in ("resistor", 'capacitor'):
+            search_links = get_search_links_for_row(row, i_type, i_value, i_footprint)
+            if search_links:
+                products = []
+                for link in search_links:
+                    get_product_data(link, products)
+                if products:
+                    if i_quantity == -1:
+                        quantity = 1
+                    else:
+                        try:
+                            quantity = int(row[i_quantity])
+                        except ValueError:
+                            continue
+                    # move comment creation to other function
+                    text_comment = "Any %s %s case %s" % (row[i_type], row[i_value], row[i_footprint].split('_')[1])
+                    if row[i_type] == 'Resistor':
+                        text_comment += ' 1%'
+                    if row[i_type] == 'Capacitor':
+                        text_comment += ", x5r or x7r or np0 isolator"
+                    best_price, best_price_id, best_price_date, best_pn = get_min_price_quantity_data(products, quantity, 5)
+                    new_row = get_new_row(row, i_url, i_price, i_partnumber, terra_base+r'product/'+best_price_id, best_price, "", best_pn, text_comment)
+                    request_body = {"valueInputOption": "RAW",
+                                    "data": [{"range": 'a%i:o%i' % (index+first, index+first), "values": [new_row]}]}
+                    request = service.spreadsheets().values().batchUpdate(spreadsheetId=spreadsheetId, body=request_body)
+                    _ = request.execute()
+                    continue
 
         if i_partnumber != -1 and i_partnumber < len(row):
             if row[i_partnumber]:
@@ -525,6 +529,7 @@ def main(spreadsheetId, first, last):
                                     "data": [{"range": 'a%i:o%i' % (values.index(row) + first, values.index(row) + first), "values": [new_row]}]}
                     request = service.spreadsheets().values().batchUpdate(spreadsheetId=spreadsheetId, body=request_body)
                     _ = request.execute()
+                    continue
         if row[i_type] == 'PN':
             best_price, best_price_url, comment = get_best_price_by_pn(row[i_value])
             new_row = get_new_row(row, i_url, i_price, i_partnumber, best_price_url, best_price, comment, row[i_value], "")
@@ -533,6 +538,7 @@ def main(spreadsheetId, first, last):
                                 values.index(row) + first, values.index(row) + first), "values": [new_row]}]}
             request = service.spreadsheets().values().batchUpdate(spreadsheetId=spreadsheetId, body=request_body)
             _ = request.execute()
+            continue
 
 
 if __name__ == '__main__':
