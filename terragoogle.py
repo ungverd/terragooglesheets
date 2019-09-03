@@ -61,7 +61,7 @@ def get_search_links_for_row(row: list, i_type: int, i_value: int, i_footprint: 
     if row[i_type] == 'Resistor':
         # get right format: 4k7 as 4700 and 47k as 47000
         if 'k' in position:
-            i: inr = position.index('k')
+            i: int = position.index('k')
             if i+1 < len(position) and position[i+1].isdigit():
                 digit: str = position[i+1]
                 position.replace('k', digit+'00 r')
@@ -81,6 +81,10 @@ def get_search_links_for_row(row: list, i_type: int, i_value: int, i_footprint: 
             position = position.lower()
             position = position.replace('pf', ' pf')
             search_links = get_search_links_from_page(position)
+    if row[i_type] == 'Inductor':
+        search_links = get_search_links_from_page(position)
+
+
     # correct 0603 cases: remove metric 0603
     new_links: List[str]= list()
     for link in search_links:
@@ -136,15 +140,24 @@ def get_product_list(link: str) -> List[str]:
     :return: list of product ids
     """
     url: str = terra_base + link
-    url = url + r'&f%5Bpresent%5D=1'
-    r = requests.get(url)
-    soup = BeautifulSoup(r.text)
+    new_url = url + r'&f%5Bpresent%5D=1'
+    payload = {
+        'LoginForm[email]': 'agereth@gmail.com',
+        'LoginForm[password]': 'juice87'
+    }
+    with requests.Session() as s:
+        p = s.post('https://www.terraelectronica.ru/signin', data=payload)
+        r = s.get(new_url)
+        if r.status_code == 404:
+            new_url = url + r'?f%5Bpresent%5D=1'
+            r = s.get(new_url)
+    soup = BeautifulSoup(r.text, 'html.parser')
     pages = soup.findAll('li', {'class': 'waves-effect'})
     products = list()
     if pages:
         for page in set(pages):
             url = terra_base + page.contents[0].attrs['href']
-            r = requests.get(url)
+            r = s.get(url)
             soup = BeautifulSoup(r.text)
             links = soup.findAll('td', {'class': 'table-item-name'})
             products.extend([link.attrs['data-code'] for link in links])
@@ -161,7 +174,13 @@ def get_actual_info(product_id: str) -> Tuple[int, dict, str]:
     :return: quantity, dictionary with prices, partnumber
     """
     url: str = terra_base + "product/" + product_id
-    res = requests.get(url)
+    payload = {
+        'LoginForm[email]': 'agereth@gmail.com',
+        'LoginForm[password]': 'juice87'
+    }
+    with requests.Session() as s:
+        p = s.post('https://www.terraelectronica.ru/signin', data=payload)
+        res = s.get(url)
     soup = BeautifulSoup(res.text)
     actual: str = soup.find('div', {'class': 'box-title'})
     partnumber: str = soup.find('h1', {'class': 'truncate'})
@@ -301,7 +320,7 @@ def get_min_price_quantity_data(products: List[Product], quantity: int, date: in
                 min_delivery_prognosis: int = delivery_prices[product][1]
                 min_partnumber: str = delivery_prices[product][2]
     else:
-        return min_price_actual, min_id, 1, ""
+        return min_price_actual, min_id, ""
     if min_price == 0:
         return min_delivery_price, min_delivery_id, min_delivery_prognosis, min_partnumber
     if min_price_actual <= min_delivery_price:
@@ -351,19 +370,27 @@ def get_terra_by_pn(partnumber:str) -> Tuple[float, str]:
     :param partnumber:
     :return: price, url
     """
-    url: str = terra_base + "search?text=" + partnumber
-    res = requests.get(url)
-    terra_url: str = ""
-    terra_price: float = 0
-    if 'product' in res.url:
-        terra_url = res.url
-        soup = BeautifulSoup(res.text)
-        tags = soup.find('div', {'class': 'fast-buy'})
-        if tags:
-            tag = soup.find('span', {'class': 'price-single price-active'})
-            terra_price = float(tag.attrs['data-price'])
-    return terra_price, terra_url
+    payload = {
+        'LoginForm[email]': 'agereth@gmail.com',
+        'LoginForm[password]': 'juice87'
+    }
 
+    # Use 'with' to ensure the session context is closed after use.
+    with requests.Session() as s:
+        #s.auth = ('agereth@gmail.com', 'juice87')
+        p = s.post('https://www.terraelectronica.ru/signin', data=payload)
+        url: str = terra_base + "search?text=" + partnumber
+        res = s.get(url)
+        terra_url: str = ""
+        terra_price: float = 0
+        if 'product' in res.url:
+            terra_url = res.url
+            soup = BeautifulSoup(res.text)
+            tags = soup.find('div', {'class': 'fast-buy'})
+            if tags:
+                tag = soup.find('span', {'class': 'price-single price-active'})
+                terra_price = float(tag.attrs['data-price'])
+    return terra_price, terra_url
 
 def get_onelec_pn(partnumber: str) -> Tuple[float, str]:
     """
@@ -420,8 +447,15 @@ def get_best_price_by_pn(value: str) -> Tuple[float, str, str]:
     :return: price, product id, comment (with more expensive product)
     """
     url: str = terra_base + "search?text=" + value
-    r = requests.get(url)
-    link = r.url
+    payload = {
+        'LoginForm[email]': 'agereth@gmail.com',
+        'LoginForm[password]': 'juice87'
+    }
+
+    with requests.Session() as s:
+        _ = s.post('https://www.terraelectronica.ru/signin', data=payload)
+        r = s.get(url)
+        link = r.url
     products = list()
     comment = ""
     if 'catalog' not in link:
@@ -454,7 +488,14 @@ def get_pn_from_terra(url: str):
     :param url: link at product
     :return: Partnumber
     """
-    res = requests.get(url)
+    payload = {
+        'LoginForm[email]': 'agereth@gmail.com',
+        'LoginForm[password]': 'juice87'
+    }
+    with requests.Session() as s:
+        p = s.post('https://www.terraelectronica.ru/signin', data=payload)
+        res = s.get(url)
+
     soup = BeautifulSoup(res.text)
     pn = soup.find('h1')
     return pn.contents[0].split()[0]
@@ -492,7 +533,7 @@ def main(spreadsheetId, first, last):
     answer = service.spreadsheets().values().get(spreadsheetId=spreadsheetId, range='a%i:o%i' % (first, last)).execute()
     values = answer.get('values', [])
     for (index, row) in enumerate(values):
-        if row[i_type].lower() in ("resistor", 'capacitor'):
+        if row[i_type].lower() in ("resistor", 'capacitor', 'inductor'):
             search_links = get_search_links_for_row(row, i_type, i_value, i_footprint)
             if search_links:
                 products = []
