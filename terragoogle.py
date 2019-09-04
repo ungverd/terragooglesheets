@@ -320,7 +320,7 @@ def get_min_price_quantity_data(products: List[Product], quantity: int, date: in
                 min_delivery_prognosis: int = delivery_prices[product][1]
                 min_partnumber: str = delivery_prices[product][2]
     else:
-        return min_price_actual, min_id, ""
+        return min_price_actual, min_id, min_price_actual, min_partnumber
     if min_price == 0:
         return min_delivery_price, min_delivery_id, min_delivery_prognosis, min_partnumber
     if min_price_actual <= min_delivery_price:
@@ -412,7 +412,7 @@ def get_onelec_pn(partnumber: str) -> Tuple[float, str]:
                     delivery: int = int(tag.contents[0].text.split()[1])
                 except ValueError:
                     continue
-                if delivery <= 5 and 'по запросу' not in tag.contents[1].text:
+                if delivery <= 7 and 'по запросу' not in tag.contents[1].text:
                     price: float = float(
                         tag.contents[2].contents[0].contents[0]['data-price-rub'].split()[0].replace(',', '.'))
                     if onelec_price == 0:
@@ -440,7 +440,7 @@ def get_best_price_from_onelec_terra_by_pn(partnumber: str)->Tuple[float, str, s
     return terra_price, terra_url, onelec_url + ' ' + str(onelec_price)
 
 
-def get_best_price_by_pn(value: str) -> Tuple[float, str, str]:
+def get_best_price_by_pn(value: str) -> Tuple[float, str, str, str]:
     """
     function gets best price from terra searhing by PN
     :param value: value to search
@@ -477,9 +477,9 @@ def get_best_price_by_pn(value: str) -> Tuple[float, str, str]:
                 best_price = price_onelec
                 comment = best_url
                 best_url = url_onelec
-        return best_price, best_url, comment
+        return best_price, best_url, pn, comment
     else:
-        return -1, "", ""
+        return -1, "", value, ""
 
 
 def get_pn_from_terra(url: str):
@@ -572,8 +572,8 @@ def main(spreadsheetId, first, last):
                     _ = request.execute()
                     continue
         if row[i_type] == 'PN':
-            best_price, best_price_url, comment = get_best_price_by_pn(row[i_value])
-            new_row = get_new_row(row, i_url, i_price, i_partnumber, best_price_url, best_price, comment, row[i_value], "")
+            best_price, best_price_url, pn, comment = get_best_price_by_pn(row[i_value])
+            new_row = get_new_row(row, i_url, i_price, i_partnumber, best_price_url, best_price, comment, pn, "")
             request_body = {"valueInputOption": "RAW",
                             "data": [{"range": 'a%i:o%i' % (
                                 values.index(row) + first, values.index(row) + first), "values": [new_row]}]}
