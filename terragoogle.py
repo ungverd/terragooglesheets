@@ -30,7 +30,7 @@ i_comment = 14
 i_second_url = 12
 
 class TS: #global object with actual terra url and cookies
-    def __init__(self):
+    def __init__(self) -> None:
         #login here
         payload = {
             'LoginForm[email]': 'agereth@gmail.com',
@@ -52,10 +52,10 @@ class TS: #global object with actual terra url and cookies
         #we get res.status_code == 302
         self.cookies = res.cookies
         
-    def get(self, url, *args, **qwargs):
+    def get(self, url: str, *args, **qwargs) -> requests.Response:
         return requests.get(self.base + url, cookies=self.cookies, *args, **qwargs)
 
-    def post(self, url, *args, **qwargs):
+    def post(self, url:str, *args, **qwargs) -> requests.Response :
         return requests.post(self.base + url, cookies=self.cookies, *args, **qwargs)
 TerraSession = TS()
 
@@ -181,8 +181,8 @@ def get_product_list(link: str) -> List[str]:
     products = list()
     if pages:
         for page in set(pages):
-            url = terra_base + page.contents[0].attrs['href']
-            r = s.get(url)
+            url = page.contents[0].attrs['href']
+            r = TerraSession.get(url)
             soup = BeautifulSoup(r.text)
             links = soup.findAll('td', {'class': 'table-item-name'})
             products.extend([link.attrs['data-code'] for link in links])
