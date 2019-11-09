@@ -52,8 +52,11 @@ class TS: #global object with actual terra url and cookies
         #we get res.status_code == 302
         self.cookies = res.cookies
         
-    def get(self, url):
-        return requests.get(self.base + url, cookies=self.cookies)
+    def get(self, url, *args, **qwargs):
+        return requests.get(self.base + url, cookies=self.cookies, *args, **qwargs)
+
+    def post(self, url, *args, **qwargs):
+        return requests.post(self.base + url, cookies=self.cookies, *args, **qwargs)
 TerraSession = TS()
 
 
@@ -224,7 +227,7 @@ def get_delivery_info(product_id: str) -> Tuple[int, int, str, dict]:
     :return: quantity available, number of delivery units, delivery unit: day or week, delivery prices
     """
     data: str = '{"jsonrpc":"2.0","method":"update_offers","params":{"code":%s},"id":"objUpdateOffers||1"}' % product_id
-    response = requests.post('https://www.terraelectronica.ru/services', data=data)
+    response = TerraSession.post('services', data=data)
     res: str = response.text
     res = res.split('"best_offer":')[1]
     res = res.replace(r'\"', r'"')
