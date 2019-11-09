@@ -146,7 +146,7 @@ def get_product_list(link: str) -> List[str]:
         'LoginForm[password]': 'juice87'
     }
     with requests.Session() as s:
-        p = s.post('https://www.terraelectronica.ru/signin', data=payload)
+        p = s.post('https://www.terraelectronica.ru/signin', data=payload, allow_redirects=False)
         r = s.get(new_url)
         if r.status_code == 404:
             new_url = url + r'?f%5Bpresent%5D=1'
@@ -179,8 +179,10 @@ def get_actual_info(product_id: str) -> Tuple[int, dict, str]:
         'LoginForm[password]': 'juice87'
     }
     with requests.Session() as s:
-        p = s.post('https://www.terraelectronica.ru/signin', data=payload)
-        res = s.get(url)
+        p = s.post('https://www.terraelectronica.ru/signin', data=payload,  allow_redirects=False)
+        jar = p.cookies
+        res = s.get(url, cookies=jar)
+
     soup = BeautifulSoup(res.text)
     actual: str = soup.find('div', {'class': 'box-title'})
     partnumber: str = soup.find('h1', {'class': 'truncate'})
@@ -372,24 +374,27 @@ def get_terra_by_pn(partnumber:str) -> Tuple[float, str]:
     """
     payload = {
         'LoginForm[email]': 'agereth@gmail.com',
-        'LoginForm[password]': 'juice87'
+        'LoginForm[password]': 'juice87',
+        'uid': ''
     }
 
     # Use 'with' to ensure the session context is closed after use.
-    with requests.Session() as s:
+    #with requests.Session() as s:
         #s.auth = ('agereth@gmail.com', 'juice87')
-        p = s.post('https://www.terraelectronica.ru/signin', data=payload)
-        url: str = terra_base + "search?text=" + partnumber
-        res = s.get(url)
-        terra_url: str = ""
-        terra_price: float = 0
-        if 'product' in res.url:
-            terra_url = res.url
-            soup = BeautifulSoup(res.text)
-            tags = soup.find('div', {'class': 'fast-buy'})
-            if tags:
-                tag = soup.find('span', {'class': 'price-single price-active'})
-                terra_price = float(tag.attrs['data-price'])
+    p = requests.post('https://www.terraelectronica.ru/signin', files=payload, allow_redirects=False)
+    jar = p.cookies
+    url: str = terra_base + "search?text=" + partnumber
+    # url = 'https://spb.terraelectronica.ru/user/profile'
+    res = requests.get(url, cookies=jar)
+    terra_url: str = ""
+    terra_price: float = 0
+    if 'product' in res.url:
+        terra_url = res.url
+        soup = BeautifulSoup(res.text)
+        tags = soup.find('div', {'class': 'fast-buy'})
+        if tags:
+            tag = soup.find('span', {'class': 'price-single price-active'})
+            terra_price = float(tag.attrs['data-price'])
     return terra_price, terra_url
 
 def get_onelec_pn(partnumber: str) -> Tuple[float, str]:
@@ -453,8 +458,9 @@ def get_best_price_by_pn(value: str) -> Tuple[float, str, str, str]:
     }
 
     with requests.Session() as s:
-        _ = s.post('https://www.terraelectronica.ru/signin', data=payload)
-        r = s.get(url)
+        res = s.post('https://www.terraelectronica.ru/signin', data=payload,   allow_redirects=False)
+        jar = res.cookies
+        r = s.get(url, cookies=jar)
         link = r.url
     products = list()
     comment = ""
@@ -493,8 +499,9 @@ def get_pn_from_terra(url: str):
         'LoginForm[password]': 'juice87'
     }
     with requests.Session() as s:
-        p = s.post('https://www.terraelectronica.ru/signin', data=payload)
-        res = s.get(url)
+        p = s.post('https://www.terraelectronica.ru/signin', data=payload, allow_redirects=False)
+        jar = p.cookies
+        res = s.get(url, cookies=jar)
 
     soup = BeautifulSoup(res.text)
     pn = soup.find('h1')
