@@ -22,7 +22,6 @@ class Product:
 
 
 terra_base = r"https://www.terraelectronica.ru/"
-terra_spb_base = r"https://www.spb.terraelectronica.ru/"
 onelec_base = r'https://onelec.ru/products/'
 BIG_PRICE = 10000
 CREDENTIALS_FILE = 'LSComponents.json'
@@ -38,12 +37,8 @@ class TS: #global object with actual terra url and cookies
             'uid': '',
             'LoginForm[ReturnURL]': '/'
         }
-        self.base = terra_spb_base
-        # we can connect to spb.terraelectronica only from Spb
-        try:
-            requests.get(self.base)
-        except requests.exceptions.ConnectionError: 
-            self.base = terra_base
+        # if we are in spb, there is redirect to https://spb.terraelectronica.ru
+        self.base = requests.get(terra_base).url
 
         res = requests.post(
             self.base + "signin",
@@ -57,7 +52,8 @@ class TS: #global object with actual terra url and cookies
 
     def post(self, url:str, *args, **qwargs) -> requests.Response :
         return requests.post(self.base + url, cookies=self.cookies, *args, **qwargs)
-TerraSession = TS()
+
+TerraSession = TS() #login to terra here
 
 
 def get_index(columns: list, name: str) -> int:
