@@ -38,13 +38,16 @@ class TS: #global object with actual terra url and cookies
             'LoginForm[ReturnURL]': '/'
         }
         # if we are in spb, there is redirect to https://spb.terraelectronica.ru
-        self.base = requests.get(terra_base).url
+        r = requests.get(terra_base)
+        coo = r.cookies
+        self.base = r.url
 
         res = requests.post(
             self.base + "signin",
             data=payload,
-            allow_redirects=False)
-        #we get res.status_code == 302
+            allow_redirects=False,
+            cookies=coo)
+        #we normally get res.status_code == 302
         self.cookies = res.cookies
         
     def get(self, url: str, *args, **qwargs) -> requests.Response:
