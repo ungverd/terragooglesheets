@@ -45,6 +45,7 @@ class TS: #global object with actual terra url and cookies
         res = requests.post(
             self.base + "signin",
             data=payload,
+            allow_redirects=False,
             cookies=coo)
         #we normally get res.status_code == 302
         self.cookies = res.cookies
