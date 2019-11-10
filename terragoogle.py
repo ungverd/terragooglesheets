@@ -29,7 +29,7 @@ i_comment = 14
 i_second_url = 12
 
 class TS: #global object with actual terra url and cookies
-    def __init__(self) -> None:
+    def login(self) -> None:
         #login here
         payload = {
             'LoginForm[email]': 'agereth@gmail.com',
@@ -56,7 +56,7 @@ class TS: #global object with actual terra url and cookies
     def post(self, url:str, *args, **qwargs) -> requests.Response :
         return requests.post(self.base + url, cookies=self.cookies, *args, **qwargs)
 
-TerraSession = TS() #login to terra here
+TerraSession = TS()
 
 
 def get_index(columns: list, name: str) -> int:
@@ -509,6 +509,8 @@ def main(spreadsheetId, first, last):
     :param last: number of last string with data
     :return:
     """
+    TerraSession.login() # login to terraelectronica
+
     # move to separate function
     credentials = ServiceAccountCredentials.from_json_keyfile_name(CREDENTIALS_FILE,
                                                                    ['https://www.googleapis.com/auth/spreadsheets',
